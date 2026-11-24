@@ -481,25 +481,7 @@ async function cleanUpdateCache() {
   const dataDir = _hanakoHome;
   const versionFile = path.join(dataDir, "last-update-version");
 
-  // 迁移：旧版 bug 把 last-update-version 写到了 ~/.hanako-dev/（生产环境误用）
-  // 搬过来后尝试清理孤儿目录
-  try {
-    const wrongDir = path.join(require("os").homedir(), ".hanako-dev");
-    if (wrongDir !== dataDir) {
-      const wrongFile = path.join(wrongDir, "last-update-version");
-      if (fs.existsSync(wrongFile)) {
-        if (!fs.existsSync(versionFile)) {
-          fs.mkdirSync(path.dirname(versionFile), { recursive: true });
-          fs.renameSync(wrongFile, versionFile);
-        } else {
-          fs.unlinkSync(wrongFile);
-        }
-        // 目录空了就删掉
-        try { fs.rmdirSync(wrongDir); } catch {} // rmdirSync 非空会失败，正好
-        console.log("[auto-updater] 已清理旧版误写的 ~/.hanako-dev/last-update-version");
-      }
-    }
-  } catch {}
+  // 已隔离为独立数据目录，不再从官方 ~/.hanako-dev 迁移 last-update-version
   // 壳身份用途：这个文件是 electron-updater 的壳级自动更新封装
   // （DMG/NSIS 整体替换壳二进制的那条更新路径，跟 artifact-ota.cjs 的
   // 内容列车 OTA 是两套独立系统）。last-update-version 记录的是"这次启动
