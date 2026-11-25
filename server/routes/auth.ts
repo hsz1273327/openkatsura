@@ -16,7 +16,9 @@ import { safeJson } from "../hono-helpers.ts";
 import { createModuleLogger } from "../../lib/debug-log.ts";
 import { t } from "../../lib/i18n.ts";
 import {
+  listOAuthProviders,
   loginOAuthProvider,
+  readStoredAuthCredential,
   type OAuthLoginCallbacks,
 } from "../../lib/pi-sdk/index.ts";
 import {
@@ -190,7 +192,10 @@ export function createAuthRoute(engine) {
     let usesCallbackServer = false;
 
     // 检查 provider 是否使用本地回调服务器（如 OpenAI Codex）
-    const providerObj = engine.authStorage.getOAuthProviders().find(p => p.id === authKey);
+    const oauthProviders = typeof engine.authStorage?.getOAuthProviders === "function"
+      ? engine.authStorage.getOAuthProviders()
+      : await listOAuthProviders(engine.modelRegistry);
+    const providerObj = oauthProviders.find(p => p.id === authKey);
     if (providerObj?.usesCallbackServer) usesCallbackServer = true;
 
     const flow: PendingOAuthFlow = {
@@ -349,10 +354,12 @@ export function createAuthRoute(engine) {
    * → { anthropic: { name, loggedIn }, minimax: { name, loggedIn }, ... }
    */
   route.get("/auth/oauth/status", async (c) => {
-    const providers = engine.authStorage.getOAuthProviders();
+    const providers = typeof engine.authStorage?.getOAuthProviders === "function"
+      ? engine.authStorage.getOAuthProviders()
+      : await listOAuthProviders(engine.modelRegistry);
     const status = {};
     for (const p of providers) {
-      const cred = engine.authStorage.get(p.id);
+      const cred = await readStoredAuthCredential(engine.authStorage, p.id);
       const modelCount = cred?.type === "oauth"
         ? engine.availableModels.filter(m => m.provider === p.id).length
         : 0;

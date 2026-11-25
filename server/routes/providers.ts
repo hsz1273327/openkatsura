@@ -19,6 +19,7 @@ import { enrichOllamaModelMetadata } from "../../shared/ollama-model-metadata.ts
 import { clearConfigCache } from "../../lib/memory/config-loader.ts";
 import { collectSecretPatchPaths, isMaskedSecretValue, maskSecretValue } from "../../shared/secret-custody.ts";
 import { denySecretMutationWithoutScope, denyWithoutScope } from "../http/capability-guard.ts";
+import { listOAuthProviders, readStoredAuthCredential } from "../../lib/pi-sdk/index.ts";
 
 // ── Models-cache helpers ──
 
@@ -101,10 +102,12 @@ export function createProvidersRoute(engine: any) {
     const provRegistry = engine.providerRegistry;
 
     // OAuth provider 登录状态（Pi SDK AuthStorage，key 是 authJsonKey）
-    const oauthProviders = engine.authStorage?.getOAuthProviders?.() || [];
+    const oauthProviders = typeof engine.authStorage?.getOAuthProviders === "function"
+      ? engine.authStorage.getOAuthProviders()
+      : await listOAuthProviders(engine.modelRegistry);
     const oauthLoginMap = new Map();
     for (const p of oauthProviders) {
-      const cred = engine.authStorage.get(p.id);
+      const cred = await readStoredAuthCredential(engine.authStorage, p.id);
       oauthLoginMap.set(p.id, { name: p.name, loggedIn: cred?.type === "oauth" });
     }
 

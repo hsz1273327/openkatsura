@@ -1621,7 +1621,8 @@ export class SessionCoordinator {
 
   getSessionStreamFn(sessionPath: any) {
     const entry = this._getSessionEntryByPath(sessionPath);
-    return entry?.session?.agent?.streamFn || null;
+    const agent = entry?.session?.agent;
+    return agent?.streamFunction ?? agent?.streamFn ?? null;
   }
 
   getSessionAgentRunRuntime(sessionPath: any) {
@@ -1631,7 +1632,8 @@ export class SessionCoordinator {
     }
     const session = entry.session;
     const agent = session.agent;
-    if (typeof agent?.streamFn !== "function") {
+    const agentStreamFn = agent?.streamFunction ?? agent?.streamFn;
+    if (typeof agentStreamFn !== "function") {
       throw new SessionAgentRunRuntimeResolutionError(sessionPath, "missing streamFn for session");
     }
     const tools = Object.freeze(
@@ -1647,7 +1649,7 @@ export class SessionCoordinator {
       maxRetryDelayMs: agent.maxRetryDelayMs,
     });
     return Object.freeze({
-      streamFn: agent.streamFn,
+      streamFn: agentStreamFn,
       tools,
       streamOptions,
     });
@@ -4321,7 +4323,7 @@ export class SessionCoordinator {
           "Summarize the old transcript so the new primary Agent can continue without depending on the deleted Agent runtime.",
         ].join(" "),
         thinkingLevel: session.thinkingLevel ?? session.agent?.state?.thinkingLevel,
-        streamFn: session.agent?.streamFn,
+        streamFn: session.agent?.streamFunction ?? session.agent?.streamFn,
         streamOptions: {
           sessionId: session.agent?.sessionId,
           onPayload: session.agent?.onPayload,
@@ -7081,11 +7083,11 @@ export class SessionCoordinator {
 
   _installCachePrefixGuard(sessionPath: any, entry: any) {
     const agent = entry?.session?.agent;
-    if (!agent || typeof agent.streamFn !== "function" || entry.cachePrefixGuardInstalled) return;
-    const originalStreamFn = agent.streamFn;
+    const originalStreamFn = agent?.streamFunction ?? agent?.streamFn;
+    if (!agent || typeof originalStreamFn !== "function" || entry.cachePrefixGuardInstalled) return;
     entry.cachePrefixGuardInstalled = true;
     entry.cachePrefixOriginalStreamFn = originalStreamFn;
-    agent.streamFn = async (model, context, options) => {
+    const wrapped = async (model, context, options) => {
       // 这份前缀契约是诊断工具，不是闸门：发现漂移就记下原文级 diff 并按现状续签放行，
       // 请求照常发出。漂移意味着有人在重建 prompt / 工具表时没走续签，凭那条记录去定位。
       // 契约只覆盖普通轮次，原生压缩与分支摘要用的是各自的 prompt；保缓存的旁路任务
@@ -7100,6 +7102,11 @@ export class SessionCoordinator {
         withProviderCacheAffinity(options, model, entry.providerCacheAffinityKey),
       );
     };
+    if (typeof agent.streamFunction === "function" || !("streamFn" in agent)) {
+      agent.streamFunction = wrapped;
+    } else {
+      agent.streamFn = wrapped;
+    }
   }
 
   _applyFinalPromptSnapshot(session: any, finalSystemPrompt: any) {
@@ -7110,8 +7117,17 @@ export class SessionCoordinator {
       // session 对象理论上可能 frozen 或 _baseSystemPrompt 带抛错 setter；
       // 容错即可，下面 agent.state.systemPrompt 仍独立尝试写入。
     }
-    if (session?.agent?.state && typeof session.agent.state === "object") {
-      session.agent.state.systemPrompt = finalSystemPrompt;
+    if (typeof session?.agent?.setSystemPrompt === "function") {
+      session.agent.setSystemPrompt(finalSystemPrompt);
+    } else if (session?.agent?.state && typeof session.agent.state === "object") {
+      const desc = Object.getOwnPropertyDescriptor(session.agent.state, "systemPrompt");
+      if (!desc || desc.writable || typeof desc.set === "function") {
+        try {
+          session.agent.state.systemPrompt = finalSystemPrompt;
+        } catch {
+          // Pi 1.6.0+ exposes AgentState.systemPrompt as a readonly getter.
+        }
+      }
     }
   }
 
@@ -7933,9 +7949,9 @@ export class SessionCoordinator {
       // no long-lived task to resume, so no mid-run compaction is installed.
       installDynamicCompactionReserve(session);
 
-      if (isolatedProviderCacheAffinityKey && typeof session?.agent?.streamFn === "function") {
-        const originalStreamFn = session.agent.streamFn;
-        session.agent.streamFn = function providerCacheAffinityStream(model, context, options) {
+      if (isolatedProviderCacheAffinityKey && typeof session?.agent?.streamFunction === "function") {
+        const originalStreamFn = session.agent.streamFunction;
+        session.agent.streamFunction = function providerCacheAffinityStream(model, context, options) {
           return originalStreamFn.call(
             this,
             model,

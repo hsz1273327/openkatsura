@@ -154,22 +154,22 @@ export class ModelManager {
   }
 
   /** 初始化 AuthStorage + ModelRegistry + 新架构模块 */
-  init() {
+  async init() {
     this._authStorage = AuthStorage.create(path.join(this._hanakoHome, "auth.json"));
     // Same file, same lock: forced OAuth rotation writes through this backend.
     this._authBackend = new FileAuthStorageBackend(path.join(this._hanakoHome, "auth.json"));
     this.providerRegistry.reload();
-    this._removeApiKeyProviderAuthEntries();
+    await this._removeApiKeyProviderAuthEntries();
     const projection = this._buildChatProjectionInputs();
-    this._applyRuntimeApiKeyOverrides(projection);
     syncModels(projection.providers, {
       modelsJsonPath: this.modelsJsonPath,
       chatProjectionPlans: projection.planMap,
     });
-    this._modelRegistry = createModelRegistry(
+    this._modelRegistry = await createModelRegistry(
       this._authStorage,
       path.join(this._hanakoHome, "models.json"),
     );
+    await this._applyRuntimeApiKeyOverrides(projection);
     this._syncSdkProviderRegistrations();
 
     this.executionRouter = new ExecutionRouter(
@@ -262,16 +262,16 @@ export class ModelManager {
    * @returns {boolean} 是否有变化
    */
   async syncAndRefresh() {
-    this._removeApiKeyProviderAuthEntries();
+    await this._removeApiKeyProviderAuthEntries();
     const projection = this._buildChatProjectionInputs();
     const changed = syncModels(projection.providers, {
       modelsJsonPath: this.modelsJsonPath,
       chatProjectionPlans: projection.planMap,
     });
-    this._applyRuntimeApiKeyOverrides(projection);
     if (changed) {
-      this._modelRegistry.refresh();
+      await this._modelRegistry.refresh();
     }
+    await this._applyRuntimeApiKeyOverrides(projection);
     await this.refreshAvailable();
     this._rebindDefaultModel();
     return changed;
@@ -332,8 +332,12 @@ export class ModelManager {
     return { plans, providers, planMap };
   }
 
-  _applyRuntimeApiKeyOverrides(projection) {
-    if (!this._authStorage?.setRuntimeApiKey) return;
+  async _applyRuntimeApiKeyOverrides(projection) {
+    const runtime = (this._modelRegistry as any)?.runtime;
+    const target = typeof runtime?.setRuntimeApiKey === "function"
+      ? runtime
+      : (typeof this._authStorage?.setRuntimeApiKey === "function" ? this._authStorage : null);
+    if (!target) return;
     for (const plan of projection?.plans || []) {
       const provider = projection.providers?.[plan.sourceProviderId] || {};
       const runtimeProviderId = plan.runtimeProviderId || plan.sourceProviderId;
@@ -341,12 +345,12 @@ export class ModelManager {
       if (plan.credentialSource === "provider-catalog"
         && typeof provider.api_key === "string"
         && provider.api_key.length > 0) {
-        this._authStorage.setRuntimeApiKey(runtimeProviderId, provider.api_key);
+        await target.setRuntimeApiKey(runtimeProviderId, provider.api_key);
         for (const providerId of cleanupIds) {
-          if (providerId !== runtimeProviderId) this._authStorage.removeRuntimeApiKey?.(providerId);
+          if (providerId !== runtimeProviderId) await target.removeRuntimeApiKey?.(providerId);
         }
       } else {
-        for (const providerId of cleanupIds) this._authStorage.removeRuntimeApiKey?.(providerId);
+        for (const providerId of cleanupIds) await target.removeRuntimeApiKey?.(providerId);
       }
     }
   }
@@ -371,7 +375,7 @@ export class ModelManager {
    * AuthStorage 只保留 OAuth 条目，避免 Pi SDK 优先读取 stale auth.json。
    * @private
    */
-  _removeApiKeyProviderAuthEntries() {
+  async _removeApiKeyProviderAuthEntries() {
     if (!this._authStorage || !this.providerRegistry) return;
     migrateLegacyApiKeyAuthToProviders({
       hanakoHome: this._hanakoHome,
@@ -396,8 +400,14 @@ export class ModelManager {
         // catalog, but cleanup must never delete the OAuth owner's credentials
         // while surfacing the collision.
         if (oauthOwnedAuthKeys.has(authKey)) continue;
-        if (!authKey || !this._authStorage.has?.(authKey)) continue;
-        this._authStorage.remove(authKey);
+        if (!authKey) continue;
+        if (typeof this._authStorage.read === "function" && typeof this._authStorage.delete === "function") {
+          const existing = await this._authStorage.read(authKey);
+          if (!existing) continue;
+          await this._authStorage.delete(authKey);
+        } else if (this._authStorage.has?.(authKey)) {
+          this._authStorage.remove?.(authKey);
+        }
       }
     }
   }
@@ -524,23 +534,30 @@ export class ModelManager {
       }
       const rawProvider = this.providerRegistry.getAllProvidersRaw?.()[entry.id] || {};
       const authKey = this.providerRegistry.getAuthJsonKey(provider);
-      if (!this._authStorage || typeof this._authStorage.getApiKey !== "function") {
+      const canResolveOAuthKey = typeof this._authStorage?.getApiKey === "function"
+        || typeof this._modelRegistry?.getApiKeyForProvider === "function";
+      if (!this._authStorage || !canResolveOAuthKey) {
         throw new Error(`${t("error.providerMissingCreds", { provider })} (auth: ${authKey})`);
       }
       refreshedOAuthKey = options.forceRefresh
         ? await forceRefreshOAuthApiKey({
             authStorage: this._authStorage,
             backend: this._authBackend,
+            modelRegistry: this._modelRegistry,
             authKey,
             staleApiKey: options.staleApiKey,
           })
-        : await this._authStorage.getApiKey(authKey, { includeFallback: false });
+        : (typeof this._authStorage.getApiKey === "function"
+            ? await this._authStorage.getApiKey(authKey, { includeFallback: false })
+            : await this._modelRegistry.getApiKeyForProvider(authKey));
       this._authStorage.reload?.();
       this.providerRegistry.clearAuthCache?.();
       if (!refreshedOAuthKey) {
         throw new Error(`${t("error.providerMissingCreds", { provider })} (auth: ${authKey})`);
       }
-      const authEntry = this._authStorage.get?.(authKey) || null;
+      const authEntry = (typeof this._authStorage.read === "function"
+        ? await this._authStorage.read(authKey)
+        : this._authStorage.get?.(authKey)) || null;
       const cred = this.providerRegistry.getCredentials(provider);
       const accountId = authEntry?.accountId || authEntry?.account_id || cred?.accountId || "";
       return {

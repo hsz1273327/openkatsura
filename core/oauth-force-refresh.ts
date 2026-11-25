@@ -24,11 +24,15 @@
  * 错，不写盘、不降级、不返回旧 token。
  */
 
+import { resolveOAuthProviderRefreshAdapter } from "../lib/pi-sdk/index.ts";
+
 interface ForceRefreshOptions {
-  /** 与 backend 指向同一份存储的 AuthStorage 实例，用于取 provider 和刷新内存副本 */
+  /** 与 backend 指向同一份存储的 AuthStorage 实例，用于刷新内存副本 */
   authStorage: any;
   /** 存储后端，提供 withLockAsync */
   backend: any;
+  /** 可选 ModelRegistry，用于优先解析注册的 OAuth provider */
+  modelRegistry?: any;
   /** auth.json 里的凭证键，例如 "openai-codex" */
   authKey: string;
   /** 调用方手上那个被拒收的 token；用于判断别人是否已经换过 */
@@ -38,10 +42,11 @@ interface ForceRefreshOptions {
 export async function forceRefreshOAuthApiKey({
   authStorage,
   backend,
+  modelRegistry,
   authKey,
   staleApiKey,
 }: ForceRefreshOptions): Promise<string> {
-  if (!authStorage || typeof authStorage.getOAuthProviders !== "function") {
+  if (!authStorage) {
     throw new Error(`Cannot rotate OAuth credential for "${authKey}": auth storage unavailable`);
   }
   if (!backend || typeof backend.withLockAsync !== "function") {
@@ -56,7 +61,9 @@ export async function forceRefreshOAuthApiKey({
       throw new Error(`Cannot rotate OAuth credential for "${authKey}": no OAuth credential stored`);
     }
 
-    const provider = authStorage.getOAuthProviders().find((p) => p?.id === authKey);
+    const provider = typeof authStorage.getOAuthProviders === "function"
+      ? authStorage.getOAuthProviders().find((p: any) => p?.id === authKey)
+      : await resolveOAuthProviderRefreshAdapter(authKey, modelRegistry);
     if (!provider) {
       throw new Error(`Cannot rotate OAuth credential for "${authKey}": no OAuth provider registered`);
     }
@@ -64,13 +71,13 @@ export async function forceRefreshOAuthApiKey({
     // 存储里的 token 已经不是调用方手上那个了，说明别的执行流刚换过。
     // 直接用新的，不再发一次刷新请求（那会把刚换来的 refresh token 作废）。
     if (staleApiKey && cred.access !== staleApiKey) {
-      return { result: provider.getApiKey(cred) };
+      return { result: await provider.getApiKey(cred) };
     }
 
     const refreshed = await provider.refreshToken(cred);
     const nextCred = { type: "oauth", ...refreshed };
     return {
-      result: provider.getApiKey(nextCred),
+      result: await provider.getApiKey(nextCred),
       next: JSON.stringify({ ...data, [authKey]: nextCred }, null, 2),
     };
   });

@@ -104,7 +104,7 @@ interface BuildLoopConfigOptions {
   convertToLlm: AgentLoopConfig["convertToLlm"];
   transformContext?: AgentLoopConfig["transformContext"];
   streamOptions: Record<string, unknown>;
-  shouldStopAfterTurn: NonNullable<AgentLoopConfig["shouldStopAfterTurn"]>;
+  finishTurn: NonNullable<AgentLoopConfig["finishTurn"]>;
 }
 
 function textContent(text: string) {
@@ -273,7 +273,7 @@ function buildLoopConfig({
   convertToLlm,
   transformContext,
   streamOptions,
-  shouldStopAfterTurn,
+  finishTurn,
 }: BuildLoopConfigOptions): AgentLoopConfig {
   const options: Record<string, any> = { ...(streamOptions || {}) };
   const requestedThinking = options.thinkingLevel ?? options.reasoning;
@@ -283,6 +283,7 @@ function buildLoopConfig({
   delete options.afterToolCall;
   delete options.prepareNextTurn;
   delete options.shouldStopAfterTurn;
+  delete options.finishTurn;
   delete options.getSteeringMessages;
   delete options.getFollowUpMessages;
 
@@ -300,7 +301,7 @@ function buildLoopConfig({
     model,
     convertToLlm,
     toolExecution: "sequential",
-    shouldStopAfterTurn,
+    finishTurn,
     getSteeringMessages: async () => [],
     getFollowUpMessages: async () => [],
   };
@@ -342,9 +343,16 @@ export async function runCachePreservingCompactionAgentRun({
   if (signal?.aborted) throw abortError("Cache-preserving compaction AgentRun aborted", diagnostics);
 
   const placeholderTools = clonePlaceholderTools(Array.isArray(tools) ? tools : []);
+  const initialMessages = [...(Array.isArray(liveMessages) ? liveMessages : [])];
+  if (systemPrompt && (initialMessages[0] as any)?.role !== "system") {
+    initialMessages.unshift({
+      role: "system",
+      content: systemPrompt,
+      timestamp: Date.now(),
+    });
+  }
   const context: AgentContext = {
-    systemPrompt,
-    messages: [...(Array.isArray(liveMessages) ? liveMessages : [])],
+    messages: initialMessages,
     tools: placeholderTools,
   };
   const pendingUsage: Array<{ requestId?: string; settled: boolean }> = [];
@@ -413,21 +421,21 @@ export async function runCachePreservingCompactionAgentRun({
     }
   };
 
-  const shouldStopAfterTurn = ({ message }: any) => {
+  const finishTurn = ({ message }: any) => {
     const toolCalls = message?.content?.filter((block: any) => block?.type === "toolCall") || [];
-    if (toolCalls.length === 0) return false;
+    if (toolCalls.length === 0) return undefined;
     const previousIntentCount = diagnostics.toolIntentCount;
     diagnostics.toolIntentCount += toolCalls.length;
     if (previousIntentCount > 0 || diagnostics.providerRequests > 1) {
       toolViolation = "Tool intent appeared after the first placeholder recovery turn";
-      return true;
+      return { action: "end" as const };
     }
     if (toolCalls.length > 1 || diagnostics.toolIntentCount > 1) {
       toolViolation = "Compaction AgentRun tool intent ceiling exceeded";
-      return true;
+      return { action: "end" as const };
     }
     requestPhase = "tool_recovery";
-    return false;
+    return undefined;
   };
 
   const config = buildLoopConfig({
@@ -435,7 +443,7 @@ export async function runCachePreservingCompactionAgentRun({
     convertToLlm,
     transformContext,
     streamOptions,
-    shouldStopAfterTurn,
+    finishTurn,
   });
 
   const runTurn = async (prompt: AgentMessage) => {

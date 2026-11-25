@@ -214,7 +214,7 @@ describe("CompactionGuardExtension", () => {
         tools: [],
         messages: await convertAgentMessagesToLlm(messages),
       };
-      expect(clampMaxTokensToContext(model, providerContextBefore, 32_000)).toBe(1);
+      expect(clampMaxTokensToContext(model, providerContextBefore as any, 32_000)).toBe(1);
 
       const result = await pi.trigger("context", { messages });
       const providerContextAfter = {
@@ -225,7 +225,7 @@ describe("CompactionGuardExtension", () => {
 
       expect(result.messages[1].usage.totalTokens).toBe(0);
       expect(retainedAssistant.usage.totalTokens).toBe(127_000);
-      expect(clampMaxTokensToContext(model, providerContextAfter, 32_000)).toBe(32_000);
+      expect(clampMaxTokensToContext(model, providerContextAfter as any, 32_000)).toBe(32_000);
     });
 
     it("does not project ordinary non-compacted conversations", async () => {

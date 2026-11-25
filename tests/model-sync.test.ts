@@ -1460,7 +1460,7 @@ describe("syncModels", () => {
 
     syncModels(providers, { modelsJsonPath });
 
-    const registry = createModelRegistry(new (AuthStorage as any)(tmpDir), modelsJsonPath);
+    const registry = await createModelRegistry(new (AuthStorage as any)(tmpDir), modelsJsonPath);
     const available = await registry.getAvailable();
     expect(available).toHaveLength(1);
     expect(available[0]).toMatchObject({

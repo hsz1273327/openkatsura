@@ -6,12 +6,17 @@ const STREAM_GUARD_FLAG = Symbol.for("hana.piSdk.streamGuardInstalled");
 
 export function installAssistantStreamGuard(session) {
   const agent = session?.agent;
-  if (!agent || typeof agent.streamFn !== "function" || agent[STREAM_GUARD_FLAG]) return;
-  const originalStreamFn = agent.streamFn;
-  agent.streamFn = async (model, context, options) => {
+  const originalStreamFn = agent?.streamFunction ?? agent?.streamFn;
+  if (!agent || typeof originalStreamFn !== "function" || agent[STREAM_GUARD_FLAG]) return;
+  const wrapped = async (model, context, options) => {
     const inner = await originalStreamFn(model, context, options);
     return guardAssistantMessageStream(inner);
   };
+  if (typeof agent.streamFunction === "function" || !("streamFn" in agent)) {
+    agent.streamFunction = wrapped;
+  } else {
+    agent.streamFn = wrapped;
+  }
   agent[STREAM_GUARD_FLAG] = true;
 }
 

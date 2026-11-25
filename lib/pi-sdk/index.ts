@@ -12,13 +12,18 @@
  */
 
 import {
-  AuthStorage,
   createAgentSession as rawCreateAgentSession,
   ModelRegistry,
+  ModelRuntime,
   resizeImage as rawResizeImage,
   formatDimensionNote as rawFormatDimensionNote,
   convertToLlm as rawConvertToLlm,
 } from "@earendil-works/pi-coding-agent";
+import {
+  AuthStorage,
+  FileAuthStorageBackend,
+  InMemoryAuthStorageBackend,
+} from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/auth-storage.js";
 // 0.80.0 起 pi-ai 老全局 API 移到 /compat 子入口（根入口是 createModels 新 API）
 import {
   getModel as rawGetPiModel,
@@ -66,7 +71,10 @@ export async function createAgentSession(options) {
   const resourceLoaderAgentDir = options?.resourceLoader?.agentDir;
   const sessionOptions = !options?.agentDir && typeof resourceLoaderAgentDir === "string" && resourceLoaderAgentDir
     ? { ...options, agentDir: resourceLoaderAgentDir }
-    : options;
+    : { ...options };
+  if (!sessionOptions.modelRuntime && sessionOptions.modelRegistry?.runtime) {
+    sessionOptions.modelRuntime = sessionOptions.modelRegistry.runtime;
+  }
   const result = await rawCreateAgentSession(normalizeCreateAgentSessionOptions(sessionOptions));
   installToolOutcomeAdapter(result?.session);
   installAssistantStreamGuard(result?.session);
@@ -88,28 +96,140 @@ export { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 
 // ── Utilities ──
 export { formatSkillsForPrompt, getLastAssistantUsage } from "@earendil-works/pi-coding-agent";
-export { AuthStorage };
-// The file-backed store is exported alongside AuthStorage because forcing a
-// credential rotation has to take the same auth.json lock the SDK takes.
-export { FileAuthStorageBackend } from "@earendil-works/pi-coding-agent";
+export { AuthStorage, FileAuthStorageBackend, InMemoryAuthStorageBackend };
 
-type OAuthProviderId = Parameters<AuthStorage["login"]>[0];
-export type OAuthLoginCallbacks = Parameters<AuthStorage["login"]>[1];
+export interface OAuthLoginCallbacks {
+  onAuth: (info: { url: string; instructions?: string }) => void;
+  onPrompt: (prompt: { message: string; placeholder?: string }) => Promise<string>;
+  onProgress?: (message: string) => void;
+  onManualCodeInput?: () => Promise<string>;
+  onDeviceCode?: (info: {
+    userCode: string;
+    verificationUri: string;
+    intervalSeconds?: number;
+    expiresInSeconds?: number;
+  }) => void;
+  onSelect?: (prompt: {
+    message: string;
+    options: readonly { id: string; label: string; description?: string }[];
+  }) => Promise<string>;
+  signal?: AbortSignal;
+}
+
 export type SdkProviderRegistrationConfig = Parameters<ModelRegistry["registerProvider"]>[1];
 export type SdkOAuthProvider = NonNullable<SdkProviderRegistrationConfig["oauth"]>;
 
 /**
  * OAuth login adapter.
  *
- * The callback contract is deliberately derived from AuthStorage.login so an
- * SDK upgrade fails Hana's typecheck at this boundary instead of at runtime.
+ * Bridges Hana's stable OAuthLoginCallbacks contract onto Pi SDK 1.6.0's
+ * ModelRuntime.login(providerId, "oauth", AuthInteraction).
  */
-export function loginOAuthProvider(
+let _cachedBuiltinModelRuntimePromise: Promise<ModelRuntime> | null = null;
+
+/**
+ * Resolve an OAuth provider adapter for forced credential rotation.
+ * In Pi SDK 1.6.0, OAuth providers live on ModelRuntime/Provider rather than AuthStorage.
+ */
+export async function resolveOAuthProviderRefreshAdapter(
+  providerId: string,
+  modelRegistry?: ModelRegistry,
+): Promise<{
+  id: string;
+  refreshToken: (cred: any) => Promise<any>;
+  getApiKey: (cred: any) => Promise<string> | string;
+} | null> {
+  let provider = modelRegistry?.getProvider?.(providerId);
+  if (!provider) {
+    _cachedBuiltinModelRuntimePromise ??= ModelRuntime.create({ refreshOnCreate: false });
+    const runtime = await _cachedBuiltinModelRuntimePromise;
+    provider = runtime.getProvider(providerId);
+  }
+  const oauth = provider?.auth?.oauth;
+  if (!oauth) return null;
+  return {
+    id: provider.id,
+    refreshToken: (cred) => oauth.refresh(cred, new AbortController().signal),
+    getApiKey: async (cred) => {
+      const auth = await oauth.toAuth(cred);
+      if (!auth?.apiKey) {
+        throw new Error(`OAuth provider "${providerId}" produced no API key`);
+      }
+      return auth.apiKey;
+    },
+  };
+}
+
+export async function readStoredAuthCredential(
+  authStorage: any,
+  providerId: string,
+): Promise<any> {
+  if (!authStorage || !providerId) return undefined;
+  if (typeof authStorage.read === "function") {
+    return authStorage.read(providerId);
+  }
+  return authStorage.get?.(providerId);
+}
+
+export async function listOAuthProviders(
+  modelRegistry?: ModelRegistry,
+): Promise<Array<{ id: string; name: string; usesCallbackServer?: boolean }>> {
+  let runtime: ModelRuntime | undefined = (modelRegistry as any)?.runtime;
+  if (!runtime) {
+    _cachedBuiltinModelRuntimePromise ??= ModelRuntime.create({ refreshOnCreate: false });
+    runtime = await _cachedBuiltinModelRuntimePromise;
+  }
+  const providers = runtime?.getProviders?.() || [];
+  const result: Array<{ id: string; name: string; usesCallbackServer?: boolean }> = [];
+  for (const p of providers) {
+    const oauth = p?.auth?.oauth;
+    if (!oauth) continue;
+    result.push({
+      id: p.id,
+      name: oauth.name || p.name || p.id,
+      usesCallbackServer: p.id === "openai-codex",
+    });
+  }
+  return result;
+}
+
+export async function loginOAuthProvider(
   authStorage: AuthStorage,
-  providerId: OAuthProviderId,
+  providerId: string,
   callbacks: OAuthLoginCallbacks,
 ): Promise<void> {
-  return authStorage.login(providerId, callbacks);
+  if (typeof (authStorage as any)?.login === "function") {
+    return (authStorage as any).login(providerId, callbacks);
+  }
+  const runtime = await ModelRuntime.create({
+    credentials: authStorage,
+    refreshOnCreate: false,
+  });
+  await runtime.login(providerId, "oauth", {
+    signal: callbacks.signal,
+    prompt: async (prompt) => {
+      if (prompt.type === "select") {
+        if (callbacks.onSelect) return callbacks.onSelect(prompt);
+        const first = prompt.options[0]?.id;
+        if (!first) throw new Error(`No login options available for ${providerId}`);
+        return first;
+      }
+      if (prompt.type === "manual_code") {
+        if (callbacks.onManualCodeInput) return callbacks.onManualCodeInput();
+        return callbacks.onPrompt({ message: prompt.message, placeholder: prompt.placeholder });
+      }
+      return callbacks.onPrompt({ message: prompt.message, placeholder: prompt.placeholder });
+    },
+    notify: (event) => {
+      if (event.type === "auth_url") {
+        callbacks.onAuth({ url: event.url, instructions: event.instructions });
+      } else if (event.type === "device_code") {
+        callbacks.onDeviceCode?.(event);
+      } else if (event.type === "progress") {
+        callbacks.onProgress?.(event.message);
+      }
+    },
+  });
 }
 
 // ── Session/history utilities ──
@@ -213,8 +333,16 @@ export function formatModelImageDimensionNote(result) {
  * @param {string} [modelsJsonPath]
  * @returns {import('@earendil-works/pi-coding-agent').ModelRegistry}
  */
-export function createModelRegistry(authStorage, modelsJsonPath) {
-  return ModelRegistry.create(authStorage, modelsJsonPath);
+export async function createModelRegistry(
+  authStorage: AuthStorage,
+  modelsJsonPath?: string,
+): Promise<ModelRegistry> {
+  const runtime = await ModelRuntime.create({
+    credentials: authStorage,
+    modelsPath: modelsJsonPath,
+    refreshOnCreate: false,
+  });
+  return new ModelRegistry(runtime);
 }
 
 /**
