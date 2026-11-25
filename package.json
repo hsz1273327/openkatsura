@@ -1,26 +1,24 @@
 {
-  "name": "hanako",
-  "version": "0.450.0",
+  "name": "openkatsura",
+  "version": "1.0.0",
   "type": "module",
-  "description": "HanaAgent - a personal AI agent with memory and soul",
+  "description": "OpenKatsura - a personal AI agent with memory and soul (forked from HanaAgent / openhanako)",
   "license": "Apache-2.0",
   "workspaces": [
     "packages/*"
   ],
   "author": {
-    "name": "liliMozi"
+    "name": "OpenKatsura Contributors (forked from liliMozi/openhanako)"
   },
   "keywords": [
     "ai-agent",
     "electron",
     "memory",
-    "multi-platform",
-    "telegram",
     "personal-assistant"
   ],
   "main": "desktop/bootstrap.cjs",
   "bin": {
-    "hana": "cli/entry.ts"
+    "katsura": "cli/entry.ts"
   },
   "engines": {
     "node": ">=24.12.0 <25"
@@ -138,8 +136,8 @@
     "vitest": "^4.0.18"
   },
   "build": {
-    "appId": "com.hanako.app",
-    "productName": "HanaAgent",
+    "appId": "com.katsura.app",
+    "productName": "OpenKatsura",
     "asar": true,
     "npmRebuild": false,
     "afterPack": "./scripts/fix-modules.cjs",
@@ -200,7 +198,7 @@
       ]
     },
     "dmg": {
-      "title": "HanaAgent",
+      "title": "OpenKatsura",
       "contents": [
         {
           "x": 180,
@@ -217,14 +215,14 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "liliMozi",
-        "repo": "openhanako"
+        "owner": "YOUR_GITHUB_USERNAME",
+        "repo": "openkatsura"
       }
     ],
     "win": {
       "target": "nsis",
       "icon": "desktop/src/icon.ico",
-      "executableName": "HanaAgent",
+      "executableName": "OpenKatsura",
       "artifactName": "${productName}-${version}-Windows-${arch}.${ext}",
       "requestedExecutionLevel": "asInvoker",
       "extraResources": [
@@ -241,7 +239,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": false,
-      "shortcutName": "HanaAgent",
+      "shortcutName": "OpenKatsura",
       "include": "build/installer.nsh",
       "installerIcon": "desktop/src/icon.ico",
       "uninstallerIcon": "desktop/src/icon.ico"

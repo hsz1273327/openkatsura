@@ -1,0 +1,11 @@
+OpenKatsura
+Copyright 2026 OpenKatsura Contributors
+
+This product is a derivative work forked from openhanako (HanaAgent),
+originally created by liliMozi (https://github.com/liliMozi/openhanako)
+and licensed under the Apache License, Version 2.0.
+
+Modifications in OpenKatsura include:
+- Runtime data directory and bundle/AppID isolation (~/.katsura, com.katsura.app)
+- Upgrading the underlying Pi SDK engine (@earendil-works/pi-*) from 0.80.3 to 1.6.0
+- Rebranding UI copy, application icons, and documentation for OpenKatsura

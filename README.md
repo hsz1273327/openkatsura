@@ -1,25 +1,26 @@
 <p align="center">
-  <img src=".github/assets/banner.jpg" width="100%" alt="HanaAgent Banner">
+  <img src="desktop/src/icon.png" width="88" alt="OpenKatsura">
 </p>
 
-<p align="center">
-  <img src=".github/assets/HanaAgent-280.png" width="80" alt="HanaAgent">
-</p>
+<h1 align="center">OpenKatsura</h1>
 
-<h1 align="center">HanaAgent</h1>
-
-<p align="center">一个有记忆、有灵魂的私人 AI 助理</p>
+<p align="center">一个有记忆、有灵魂的私人 AI 助理（基于 openhanako 二次改造）</p>
 
 <p align="center"><a href="README_EN.md">English</a></p>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](https://github.com/liliMozi/openhanako/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#)
+
+> **项目来由说明**：OpenKatsura 是基于 [liliMozi/openhanako](https://github.com/liliMozi/openhanako)（HanaAgent `v0.450.0`，Apache-2.0 协议）分叉改造的衍生项目。本项目保留原 Apache-2.0 协议与原作者版权声明，并在此基础上独立维护：
+> - 将底层 Pi SDK 引擎（`@earendil-works/pi-*`）从 `0.80.3` 升级至 `1.6.0`；
+> - 彻底隔离默认数据目录（`~/.katsura` / `~/.katsura-dev`）与应用标识（`com.katsura.app`），不与原版冲突；
+> - 后续聚焦引擎调度、插件化平台适配与核心精简。
 
 ---
 
-## HanaAgent 是什么
+## OpenKatsura 是什么
 
-HanaAgent 是一个更加易用的 AI agent，有记忆，有性格，会主动行动，还能多 Agent 在你的电脑上一同工作。
+OpenKatsura 是一个更加易用的 AI agent，有记忆，有性格，会主动行动，还能多 Agent 在你的电脑上一同工作。
 
 作为助手，Ta 是温柔的：不需要写复杂的配置，不需要理解晦涩的术语。HanaAgent 它不只面向 coder ，而是为每一个坐在电脑前工作的人设计的助手。
 作为工具，Ta 是强大的：记住你说过的每一件事，操作你的电脑，浏览网页，搜索信息，读写文件，执行代码，管理日程，还能自主学习新技能。

@@ -1,25 +1,26 @@
 <p align="center">
-  <img src=".github/assets/banner.jpg" width="100%" alt="HanaAgent Banner">
+  <img src="desktop/src/icon.png" width="88" alt="OpenKatsura">
 </p>
 
-<p align="center">
-  <img src=".github/assets/HanaAgent-280.png" width="80" alt="HanaAgent">
-</p>
+<h1 align="center">OpenKatsura</h1>
 
-<h1 align="center">HanaAgent</h1>
-
-<p align="center">A personal AI agent with memory and soul</p>
+<p align="center">A personal AI agent with memory and soul (forked from openhanako)</p>
 
 <p align="center"><a href="README.md">中文版</a></p>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](https://github.com/liliMozi/openhanako/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#)
+
+> **Origin & Attribution**: OpenKatsura is a derivative work forked from [liliMozi/openhanako](https://github.com/liliMozi/openhanako) (HanaAgent `v0.450.0`, Apache License 2.0). It retains the original Apache-2.0 license and copyright notices while maintaining independent changes:
+> - Upgraded the underlying Pi SDK engine (`@earendil-works/pi-*`) from `0.80.3` to `1.6.0`;
+> - Isolated runtime data directories (`~/.katsura` / `~/.katsura-dev`) and application identifiers (`com.katsura.app`) from the upstream app;
+> - Focused on engine scheduling, pluggable platform adapters, and a leaner core.
 
 ---
 
-## What is HanaAgent
+## What is OpenKatsura
 
-HanaAgent is a personal AI agent that is easier to use than traditional coding agents. It has memory, personality, and can act autonomously. Multiple agents can work together on your machine.
+OpenKatsura is a personal AI agent that is easier to use than traditional coding agents. It has memory, personality, and can act autonomously. Multiple agents can work together on your machine.
 
 As an assistant, it is gentle: no complex configuration files, no obscure jargon. HanaAgent is designed not just for coders, but for everyone who works at a computer.
 As a tool, it is powerful: it remembers everything you've said, operates your computer, browses the web, searches for information, reads and writes files, executes code, manages schedules, and can even learn new skills on its own.

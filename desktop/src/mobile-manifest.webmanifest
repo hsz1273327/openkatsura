@@ -1,6 +1,6 @@
 {
-  "name": "HanaAgent",
-  "short_name": "HanaAgent",
+  "name": "OpenKatsura",
+  "short_name": "OpenKatsura",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
