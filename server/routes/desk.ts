@@ -22,9 +22,9 @@ import {
   workspaceSkillPolicyFromConfig,
 } from "../../shared/workspace-skill-paths.ts";
 import { DEFAULT_DISABLED_TOOL_NAMES } from "../../shared/tool-categories.ts";
-import { applyMarkdownCoverFromGeneratedFile } from "../../plugins/beautify/lib/markdown-cover-service.ts";
-import { resolveCoverGalleryPresetImagePath } from "../../plugins/beautify/lib/cover-gallery-assets.ts";
-import { buildCoverStyleGuideForAgent } from "../../plugins/beautify/lib/cover-style-guide.ts";
+import { applyMarkdownCoverFromGeneratedFile } from "../../lib/desk/markdown-cover-service.ts";
+import { resolveCoverGalleryPresetImagePath } from "../../lib/desk/cover-gallery-assets.ts";
+import { buildCoverStyleGuideForAgent } from "../../lib/desk/cover-style-guide.ts";
 import { DEFAULT_ACTIVITY_EXECUTION_TIMEOUT_MS, activityTimeoutPatch } from "../../lib/desk/activity-store.ts";
 import { t } from "../../lib/i18n.ts";
 import { realPath, isSensitivePath } from "../utils/path-security.ts";

@@ -24,7 +24,6 @@ import { createConfigRoute } from "../routes/config.ts";
 import { createUploadRoute } from "../routes/upload.ts";
 import { createProvidersRoute } from "../routes/providers.ts";
 import { createAgentsRoute } from "../routes/agents.ts";
-import { createDevicesRoute } from "../routes/devices.ts";
 import { createSkillsRoute } from "../routes/skills.ts";
 import { createChannelsRoute } from "../routes/channels.ts";
 import { createDmRoute } from "../routes/dm.ts";
@@ -49,22 +48,9 @@ import { createUsageRoute } from "../routes/usage.ts";
 import { createWebAuthRoute } from "../routes/web-auth.ts";
 import { createWebSocketAuthRoute } from "../routes/ws-auth.ts";
 import { createStudioWorkspacesRoute } from "../routes/studio-workspaces.ts";
-import { createMobileStaticRoute, resolveMobileStaticRouteOptions } from "../routes/mobile-static.ts";
 import { createHtmlPreviewRoute } from "../routes/html-preview.ts";
-import { createAccessRoute } from "../routes/access.ts";
 import { createSpeechRecognitionRoute } from "../routes/speech-recognition.ts";
 import { createMemoryDreamRoute } from "../routes/memory-dream.ts";
-
-/**
- * `/mobile`、`/desktop` 网页客户端入口的供货模式，启动时决议一次 —— 见
- * server/index.ts 原有同名函数的注释（原样搬入，未改动判定逻辑）。
- */
-function decideMobileStaticRouteOptions() {
-  return resolveMobileStaticRouteOptions({
-    env: process.env,
-    devDistDir: fromRoot("desktop", "dist-renderer"),
-  });
-}
 
 export function registerOpenRoutes(app: Hono, ctx: CompositionContext): void {
   const {
@@ -80,7 +66,6 @@ export function registerOpenRoutes(app: Hono, ctx: CompositionContext): void {
   } = ctx;
 
   const { restRoute: chatRestRoute, wsRoute: chatWsRoute } = createChatRoute(engine, hub, { upgradeWebSocket });
-  app.route("", createMobileStaticRoute(decideMobileStaticRouteOptions()));
   app.route("", createHtmlPreviewRoute());
   app.route("/api", chatRestRoute);
   app.route("", chatWsRoute);
@@ -91,10 +76,6 @@ export function registerOpenRoutes(app: Hono, ctx: CompositionContext): void {
     getConnectionKind: (c: any) => c.get("transportConnectionKind"),
     getRuntimeContext: () => engine.getRuntimeContext(),
   } as any));
-  app.route("/api", createAccessRoute({
-    engine,
-    runtimeState: serverRuntimeState,
-  } as any));
   app.route("/api", createSessionsRoute(engine, hub));
   app.route("/api", createSessionCollabRoute(engine));
   app.route("/api", createSessionProjectsRoute(engine));
@@ -104,7 +85,6 @@ export function registerOpenRoutes(app: Hono, ctx: CompositionContext): void {
   app.route("/api", createUploadRoute(engine));
   app.route("/api", createProvidersRoute(engine));
   app.route("/api", createAgentsRoute(engine));
-  app.route("/api", createDevicesRoute(engine));
   app.route("/api", createStudioWorkspacesRoute(engine));
   app.route("/api", createSkillsRoute(engine));
   app.route("/api", createChannelsRoute(engine, hub));

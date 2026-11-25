@@ -31,7 +31,6 @@ import { PluginMarketplaceTab } from './tabs/PluginMarketplaceTab';
 import { ExperimentsTab } from './tabs/ExperimentsTab';
 import { SecurityTab } from './tabs/SecurityTab';
 import { SharingTab } from './tabs/SharingTab';
-import { AccessTab } from './tabs/AccessTab';
 import { CropOverlay } from './overlays/CropOverlay';
 import { AgentCreateOverlay } from './overlays/AgentCreateOverlay';
 import { AgentDeleteOverlay } from './overlays/AgentDeleteOverlay';
@@ -57,7 +56,6 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   providers: ProvidersTab,
   media: MediaTab,
   sharing: SharingTab,
-  access: AccessTab,
   plugins: PluginsTab,
   experiments: ExperimentsTab,
   'plugin-marketplace': PluginMarketplaceTab,

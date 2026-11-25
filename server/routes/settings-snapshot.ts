@@ -6,7 +6,6 @@ import { injectGlobalFields } from "../../shared/config-scope.ts";
 import { computeSettingsAvailableToolNames } from "../../shared/tool-categories.ts";
 import { readPinnedMemoryItems } from "../../lib/memory/pinned-memory-store.ts";
 import { listExperienceDocuments } from "../../lib/tools/experience.ts";
-import { createAccessSummary, getLanAddresses } from "./access.ts";
 import { buildBridgeStatus } from "./bridge.ts";
 import { buildComputerUsePreferences } from "./preferences.ts";
 import { normalizeNotificationPreferences } from "../../shared/notification-preferences.ts";
@@ -197,13 +196,8 @@ function resolveBridgeManager(ref: any) {
   return ref;
 }
 
-function buildAccessSnapshot(engine: any, canSeeLocalPaths: boolean, options: Record<string, any>) {
-  if (!canSeeLocalPaths || !engine?.hanakoHome) return null;
-  return createAccessSummary(
-    engine,
-    options.runtimeState || {},
-    options.listLanAddresses || getLanAddresses,
-  );
+function buildAccessSnapshot(_engine: any, _canSeeLocalPaths: boolean, _options: Record<string, any>) {
+  return null;
 }
 
 export function createSettingsSnapshotRoute(engine: any, options: Record<string, any> = {}) {

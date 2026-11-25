@@ -41,7 +41,7 @@ import { EnvChangeLedger } from "../core/env-change-ledger.ts";
 import { SessionManifestStore } from "../core/session-manifest/store.ts";
 import { repairRestoredToolSnapshot } from "../core/tool-snapshot-repair.ts";
 import { filterToolObjectsByAvailability } from "../core/tool-availability.ts";
-import { isBeautifyEnabledForAgentConfig } from "../plugins/beautify/lib/availability.ts";
+const isBeautifyEnabledForAgentConfig = (cfg: any) => !(cfg?.tools?.disabled || []).includes("beautify");
 import { CORE_TOOL_NAMES } from "../shared/tool-categories.ts";
 
 // Fake tool objects — only needs `.name` to satisfy `.map(t => t.name)` paths

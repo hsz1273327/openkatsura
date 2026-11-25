@@ -55,7 +55,6 @@ import {
 } from "./http/plugin-assets.ts";
 import { resolveHttpRequestPrincipal } from "./http/request-principal.ts";
 import { ensureLocalIdentityRegistries } from "../core/server-identity.ts";
-import { createMobileWorkbenchRoute } from "./routes/mobile-workbench.ts";
 import { registerOpenRoutes } from "./composition/open-root.ts";
 import type { CompositionRoot, CompositionContext } from "./composition/contract.ts";
 import { registerTaskRegistryBusHandlers } from "./task-bus-handlers.ts";
@@ -973,7 +972,6 @@ export async function startServer(root: CompositionRoot = {}): Promise<void> {
     appVersion,
   };
   registerOpenRoutes(app, ctx);
-  app.route("/api", createMobileWorkbenchRoute(engine));
   root.registerClosedRoutes?.(app, ctx);
   // internal-browser WS — see unified upgrade handler in server startup below
 

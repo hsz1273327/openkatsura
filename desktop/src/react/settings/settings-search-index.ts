@@ -174,13 +174,6 @@ const BUILT_IN_SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     aliases: ['share', 'screenshot', 'card', 'watermark', '分享', '截图', '卡片', '水印'],
   },
   {
-    id: 'access-mobile',
-    tabId: 'access',
-    titleKey: 'settings.access.mobileAccess',
-    pathKeys: ['settings.tabs.access'],
-    aliases: ['access', 'mobile', 'pwa', 'lan', 'remote', 'port', 'qr code', '访问', '手机', '局域网', '远程', '端口', '二维码'],
-  },
-  {
     id: 'plugins-management',
     tabId: 'plugins',
     titleKey: 'settings.plugins.manageTitle',

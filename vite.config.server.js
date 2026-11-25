@@ -45,8 +45,6 @@ export default defineConfig({
         /^@mariozechner\//,
         /^@earendil-works\//,
         "@silvia-odwyer/photon-node",
-        "@larksuiteoapi/node-sdk",
-        "node-telegram-bot-api",
         "proxy-agent",
         "undici",
         "exceljs",

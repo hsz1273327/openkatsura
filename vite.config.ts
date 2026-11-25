@@ -334,7 +334,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'desktop/src/index.html'),
-        mobile: path.resolve(__dirname, 'desktop/src/mobile.html'),
         settings: path.resolve(__dirname, 'desktop/src/settings.html'),
         'quick-chat': path.resolve(__dirname, 'desktop/src/quick-chat.html'),
         onboarding: path.resolve(__dirname, 'desktop/src/onboarding.html'),

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fromRoot } from "../../../shared/hana-root.ts";
-import { getCoverGalleryPreset } from "../../../shared/cover-gallery-presets.ts";
+import { fromRoot } from "../../shared/hana-root.ts";
+import { getCoverGalleryPreset } from "../../shared/cover-gallery-presets.ts";
 
 const COVER_GALLERY_ASSET_SEGMENTS = ["desktop", "src", "assets", "cover-gallery"];
 
