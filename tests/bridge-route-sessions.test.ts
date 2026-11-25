@@ -4,6 +4,16 @@ import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { createBridgeRoute } from "../server/routes/bridge.ts";
+import { registerMockBridgeProviders } from "./helpers/register-mock-bridge-providers.ts";
+
+let cleanupMockBridgeProviders: (() => void) | null = null;
+beforeEach(() => {
+  cleanupMockBridgeProviders = registerMockBridgeProviders();
+});
+afterEach(() => {
+  cleanupMockBridgeProviders?.();
+  cleanupMockBridgeProviders = null;
+});
 
 let rootDir;
 

@@ -10,6 +10,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { registerMockBridgeProviders } from "./helpers/register-mock-bridge-providers.ts";
+
+let cleanupMockBridgeProviders: (() => void) | null = null;
+beforeEach(() => {
+  cleanupMockBridgeProviders = registerMockBridgeProviders();
+});
+afterEach(() => {
+  cleanupMockBridgeProviders?.();
+  cleanupMockBridgeProviders = null;
+});
 
 // ── Mock adapter imports (避免拉真实 SDK) ──
 

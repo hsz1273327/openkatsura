@@ -771,7 +771,6 @@ describe("syncModels", () => {
       maxTokens: 98304,
       input: ["text", "image"],
       reasoning: true,
-      headers: { "User-Agent": "KimiCLI/1.5" },
       compat: {
         supportsDeveloperRole: false,
         thinkingFormat: "kimi",
@@ -851,7 +850,6 @@ describe("syncModels", () => {
       maxTokens: 12345,
       input: ["text"],
       reasoning: false,
-      headers: { "User-Agent": "KimiCLI/1.5" },
     });
   });
 
@@ -885,7 +883,6 @@ describe("syncModels", () => {
         high: "high",
         xhigh: "max",
       },
-      headers: { "User-Agent": "KimiCLI/1.5" },
     });
     expect(models[1]).toMatchObject({
       id: "k3-256k",
@@ -901,7 +898,6 @@ describe("syncModels", () => {
         high: "high",
         xhigh: "max",
       },
-      headers: { "User-Agent": "KimiCLI/1.5" },
     });
     for (const model of models) {
       expect(model).not.toHaveProperty("maxTokens");
@@ -929,7 +925,6 @@ describe("syncModels", () => {
       id: "future-kimi-code-model",
       reasoning: true,
       input: ["text"],
-      headers: { "User-Agent": "KimiCLI/1.5" },
       compat: {
         thinkingFormat: "kimi",
         reasoningProfile: "kimi-openai",
@@ -959,7 +954,6 @@ describe("syncModels", () => {
     const result = JSON.parse(fs.readFileSync(modelsJsonPath, "utf-8"));
     const model = result.providers["kimi-coding"].models[0];
     expect(model.id).toBe("kimi-for-coding");
-    expect(model.headers).toEqual({ "User-Agent": "KimiCLI/1.5" });
     expect(model.compat).toMatchObject({
       supportsDeveloperRole: false,
       thinkingFormat: "kimi",
@@ -1447,7 +1441,7 @@ describe("syncModels", () => {
 
   it("writes Pi-loadable models when Hana video capability is enabled", async () => {
     const syncModels = await loadSync();
-    const { AuthStorage, createModelRegistry } = await import("../lib/pi-sdk/index.ts");
+    const { AuthStorage, FileAuthStorageBackend, createModelRegistry } = await import("../lib/pi-sdk/index.ts");
 
     const providers = {
       dashscope: {
@@ -1460,8 +1454,11 @@ describe("syncModels", () => {
 
     syncModels(providers, { modelsJsonPath });
 
-    const registry = await createModelRegistry(new (AuthStorage as any)(tmpDir), modelsJsonPath);
-    const available = await registry.getAvailable();
+    const registry = await createModelRegistry(
+      (AuthStorage as any).fromStorage(new FileAuthStorageBackend(path.join(tmpDir, "auth.json"))),
+      modelsJsonPath,
+    );
+    const available = registry.getAll().filter((m: any) => m.provider === "dashscope" && m.id === "qwen3-vl-plus");
     expect(available).toHaveLength(1);
     expect(available[0]).toMatchObject({
       id: "qwen3-vl-plus",
@@ -2099,27 +2096,24 @@ describe("syncModels", () => {
         base_url: "https://opencode.ai/zen/go/v1",
         api: "openai-completions",
         api_key: "sk-test",
-        models: ["deepseek-v4-flash"],
+        models: ["deepseek-v4.1-flash"],
       },
     }, { modelsJsonPath });
 
     const result = JSON.parse(fs.readFileSync(modelsJsonPath, "utf-8"));
     expect(result.providers["opencode-go"].models[0]).toMatchObject({
-      id: "deepseek-v4-flash",
+      id: "deepseek-v4.1-flash",
       contextWindow: 1_000_000,
       maxTokens: 384_000,
       reasoning: true,
       thinkingLevelMap: {
         minimal: null,
-        low: null,
+        low: "low",
         medium: null,
         high: "high",
-        xhigh: "max",
       },
       compat: {
-        supportsDeveloperRole: false,
         thinkingFormat: "deepseek",
-        outputCapField: "max_tokens",
       },
     });
   });

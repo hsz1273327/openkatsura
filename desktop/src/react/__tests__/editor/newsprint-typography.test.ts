@@ -20,11 +20,9 @@ describe('newsprint typography assets & tokens', () => {
     expect(css).toMatch(/pt-serif-v11-latin-700italic\.woff2/);
   });
 
-  it('defines --font-serif-text (PT Serif first, CJK serif fallback) on desktop and mobile', () => {
-    for (const p of ['desktop/src/styles.css', 'desktop/src/react/mobile/mobile-entry.css']) {
-      const css = read(p);
-      expect(css).toMatch(/--font-serif-text:\s*'PT Serif',\s*'Noto Serif SC'/);
-    }
+  it('defines --font-serif-text (PT Serif first, CJK serif fallback) on desktop', () => {
+    const css = read('desktop/src/styles.css');
+    expect(css).toMatch(/--font-serif-text:\s*'PT Serif',\s*'Noto Serif SC'/);
   });
 
   it('font-sans mode overrides --font-serif-text too', () => {
@@ -32,8 +30,7 @@ describe('newsprint typography assets & tokens', () => {
     expect(css).toMatch(/body\.font-sans\s*\{[^}]*--font-serif-text:\s*var\(--font-ui\)/s);
   });
 
-  it('defines --radius-xs on desktop (3px) and mobile (4px)', () => {
+  it('defines --radius-xs on desktop (3px)', () => {
     expect(read('desktop/src/styles.css')).toMatch(/--radius-xs:\s*3px/);
-    expect(read('desktop/src/react/mobile/mobile-entry.css')).toMatch(/--radius-xs:\s*4px/);
   });
 });

@@ -2415,12 +2415,30 @@ function migrateStableDingTalkCredentialsToLegacyAuthMode(ctx) {
 
     let canonical: Record<string, any>;
     try {
+      const rawApiBase = dingtalk.apiBaseUrl ?? dingtalk.restBaseUrl;
+      const normalizedApiBase = typeof rawApiBase === "string" ? rawApiBase.replace(/\/+$/, "") : rawApiBase;
+      if (typeof normalizedApiBase === "string" && normalizedApiBase.trim()) {
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(normalizedApiBase);
+        } catch {
+          const err: any = new Error("Invalid DingTalk API base URL");
+          err.code = "INVALID_DINGTALK_CONFIG";
+          throw err;
+        }
+        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+          const err: any = new Error("Invalid DingTalk API base URL protocol");
+          err.code = "INVALID_DINGTALK_CONFIG";
+          throw err;
+        }
+      }
       canonical = {
         ...dingtalk,
         authMode: "legacy_app",
+        corpId: typeof dingtalk.corpId === "string" ? dingtalk.corpId : "",
         ...(dingtalk.clientId == null && dingtalk.appKey != null ? { clientId: dingtalk.appKey } : {}),
         ...(dingtalk.clientSecret == null && dingtalk.appSecret != null ? { clientSecret: dingtalk.appSecret } : {}),
-        ...(dingtalk.apiBaseUrl == null && dingtalk.restBaseUrl != null ? { apiBaseUrl: dingtalk.restBaseUrl } : {}),
+        ...(normalizedApiBase != null ? { apiBaseUrl: normalizedApiBase } : {}),
       };
       delete canonical.appKey;
       delete canonical.appSecret;

@@ -93,7 +93,6 @@ describe("persistent store registry", () => {
       "legacy-upload-cache",
       "character-card-staging",
       "desk-cover-upload-staging",
-      "office-render-jobs",
       "plugin-download-cache",
       "skill-state",
       "usage-ledger",
@@ -143,8 +142,6 @@ describe("persistent store registry", () => {
 
     const pluginData = PERSISTENT_STORES.find((store) => store.id === "plugin-runtime-data")!;
     expect(pluginData.pathExclusions).toEqual([
-      "plugin-data/office/jobs",
-      "plugin-data/office/generated",
       "plugin-data/mcp",
     ]);
     // MCP config is owned by the core module, not by the plugin data store, even
@@ -153,12 +150,6 @@ describe("persistent store registry", () => {
     expect(mcp.ownerModule).toBe("core/mcp/manager.ts");
     expect(mcp.pathPatterns).toEqual(["plugin-data/mcp"]);
     expect(mcp.schemaContract.kind).not.toBe("exempt");
-    const office = PERSISTENT_STORES.find((store) => store.id === "office-render-jobs")!;
-    expect(office.ownerModule).toBe("plugins/office/lib/html-to-pdf.ts");
-    expect(office.pathPatterns).toEqual([
-      "plugin-data/office/jobs",
-      "plugin-data/office/generated",
-    ]);
   });
 
   // The plugin store owns both the directory name and the file shape. The

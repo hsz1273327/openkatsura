@@ -7,8 +7,8 @@ function readProjectFile(relativePath: string): string {
 }
 
 describe('global focus ring styles', () => {
-  it('does not draw visible focus outlines in desktop or mobile entries', () => {
-    for (const file of ['desktop/src/styles.css', 'desktop/src/react/mobile/mobile-entry.css']) {
+  it('does not draw visible focus outlines in desktop entry', () => {
+    for (const file of ['desktop/src/styles.css']) {
       const css = readProjectFile(file);
 
       expect(css).toMatch(/:focus,\s*:focus-visible\s*\{[\s\S]*outline:\s*none\s*!important/);

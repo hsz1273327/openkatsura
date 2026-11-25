@@ -23,8 +23,8 @@ describe("yuan visuals", () => {
     });
   });
 
-  it("falls back to hanako for unknown yuan values", () => {
-    expect(normalizeYuan("unknown")).toBe("hanako");
+  it("falls back to katsura for unknown yuan values", () => {
+    expect(normalizeYuan("unknown")).toBe("katsura");
     expect(moodLabelForYuan("unknown")).toBe("✿ MOOD");
   });
 });

@@ -219,9 +219,10 @@ describe("cache-preserving compaction AgentRun", () => {
 
     expect(result.summary).toBe(VALID_SUMMARY);
     expect(requests).toHaveLength(1);
-    expect(requests[0].messages).toEqual([...fixture.liveMessages, fixture.instruction]);
-    expect(requests[0].messages.slice(0, -1)).toEqual(fixture.liveMessages);
-    expect(requests[0].messages.at(-1)).toEqual(fixture.instruction);
+    const nonSystemMessages = requests[0].messages.filter((m: any) => m.role !== "system");
+    expect(nonSystemMessages).toEqual([...fixture.liveMessages, fixture.instruction]);
+    expect(nonSystemMessages.slice(0, -1)).toEqual(fixture.liveMessages);
+    expect(nonSystemMessages.at(-1)).toEqual(fixture.instruction);
   });
 
   it("keeps the old-region identity and recent-tail boundary separate in the hidden instruction", async () => {
@@ -250,8 +251,9 @@ describe("cache-preserving compaction AgentRun", () => {
       },
     });
 
-    expect(requestMessages[2].content[0].text).toBe("recent-tail-1");
-    expect(requestMessages[3].content[0].text).toBe("recent-tail-2");
+    const nonSystem = requestMessages.filter((m: any) => m.role !== "system");
+    expect(nonSystem[2].content[0].text).toBe("recent-tail-1");
+    expect(nonSystem[3].content[0].text).toBe("recent-tail-2");
     expect(requestMessages.at(-1).content[0].text).toContain(
       "The recent tail is retained context, not replacement input",
     );
@@ -262,8 +264,8 @@ describe("cache-preserving compaction AgentRun", () => {
     let providerTools: any[] = [];
     await runCachePreservingCompactionAgentRun({
       ...fixture,
-      streamFn: async (_model: any, context: any) => {
-        providerTools = context.tools;
+      streamFn: async (_model: any, context: any, options?: any) => {
+        providerTools = context.tools ?? options?.tools ?? [];
         return streamOf(textResponse(VALID_SUMMARY));
       },
     });
@@ -295,8 +297,8 @@ describe("cache-preserving compaction AgentRun", () => {
 
     const result = await runCachePreservingCompactionAgentRun({
       ...fixture,
-      streamFn: async (_model: any, context: any) => {
-        requests.push({ ...context, messages: [...context.messages] });
+      streamFn: async (_model: any, context: any, options?: any) => {
+        requests.push({ ...context, tools: context.tools ?? options?.tools ?? [], messages: [...context.messages] });
         return streamOf(responses.shift());
       },
     });

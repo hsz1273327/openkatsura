@@ -746,12 +746,12 @@ describe("desktop crash log version header", () => {
     const { returned, onDisk, header } = runWriteCrashLog(() => "0.442.0");
 
     expect(header).toEqual([
-      "=== HanaAgent Crash Log ===",
-      "HanaAgent shell: v0.421.24",
+      "=== OpenKatsura Crash Log ===",
+      "OpenKatsura shell: v0.421.24",
       "Content: v0.442.0",
     ]);
     // 单行时代的旧格式不得复活：只报壳版本会把新内容里的崩溃标成老版本。
-    expect(onDisk).not.toMatch(/^HanaAgent: v/m);
+    expect(onDisk).not.toMatch(/^OpenKatsura: v/m);
     expect(returned).toBe(onDisk);
   });
 
@@ -760,7 +760,7 @@ describe("desktop crash log version header", () => {
       throw new Error("content version accessor unavailable");
     });
 
-    expect(header[1]).toBe("HanaAgent shell: v0.421.24");
+    expect(header[1]).toBe("OpenKatsura shell: v0.421.24");
     expect(header[2]).toBe("Content: vunknown");
   });
 });

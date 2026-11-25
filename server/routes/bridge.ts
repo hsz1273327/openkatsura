@@ -230,17 +230,21 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
   route.post("/bridge/config", async (c) => {
     const body = await safeJson(c);
     const { platform, credentials, enabled } = body;
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const secretKeys = bridgeSecretKeys(platform);
+    const fallbackSecretKeys = secretKeys.length > 0
+      ? secretKeys
+      : ["token", "botToken", "appSecret", "clientSecret", "secret"];
+    const secretFields = credentials
+      ? collectSecretPatchPaths({ credentials }, fallbackSecretKeys)
+      : [];
+    const secretDenied = denySecretMutationWithoutScope(c, secretFields);
+    if (secretDenied) return secretDenied;
     const provider = platform ? bridgeProviderRegistry.get(platform) : null;
     if (!provider) {
       return c.json({ error: "invalid or uninstalled platform plugin" }, 400);
     }
-    const scopeDenied = denyWithoutScope(c, "bridge.manage");
-    if (scopeDenied) return scopeDenied;
-    const secretFields = credentials
-      ? collectSecretPatchPaths({ credentials }, bridgeSecretKeys(platform))
-      : [];
-    const secretDenied = denySecretMutationWithoutScope(c, secretFields);
-    if (secretDenied) return secretDenied;
 
     const agent = resolveAgentStrict(engine, c);
     const agentId = agent.id;

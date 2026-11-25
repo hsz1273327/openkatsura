@@ -245,7 +245,7 @@ describe('editor typography settings', () => {
   });
 
   it('constrains markdown tables while allowing cell wrapping', () => {
-    for (const css of [readGlobalStyles(), readMobileStyles()]) {
+    for (const css of [readGlobalStyles()]) {
       expect(css).toMatch(/\.md-content \.markdown-table-scroll\s*\{[^}]*max-width:\s*100%/);
       expect(css).not.toMatch(/\.md-content \.markdown-table-scroll\s*\{[^}]*overflow-x:\s*auto/);
       expect(css).toMatch(/\.md-content \.markdown-table-scroll > table\s*\{[^}]*width:\s*100%/);

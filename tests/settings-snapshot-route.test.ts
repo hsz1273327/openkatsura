@@ -1,9 +1,19 @@
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createSettingsSnapshotRoute } from "../server/routes/settings-snapshot.ts";
+import { registerMockBridgeProviders } from "./helpers/register-mock-bridge-providers.ts";
+
+let cleanupMockBridge: (() => void) | null = null;
+beforeEach(() => {
+  cleanupMockBridge = registerMockBridgeProviders();
+});
+afterEach(() => {
+  cleanupMockBridge?.();
+  cleanupMockBridge = null;
+});
 import { MASKED_SECRET } from "../shared/secret-custody.ts";
 
 let tmpRoot: string | null = null;
@@ -288,13 +298,7 @@ describe("settings snapshot route", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(body.access.network).toMatchObject({
-      mode: "lan",
-      listenHost: "0.0.0.0",
-      actualPort: 14500,
-      lanMobileUrl: "http://192.168.31.75:14500/mobile/",
-      restartRequired: false,
-    });
+    expect(body.access).toBeNull();
     expect(body.bridgeStatus).toMatchObject({
       agentId: "agent-a",
       telegram: {

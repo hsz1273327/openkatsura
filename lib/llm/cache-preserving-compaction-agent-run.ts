@@ -413,7 +413,10 @@ export async function runCachePreservingCompactionAgentRun({
     const pending = { requestId: usageRequest.requestId, settled: false };
     pendingUsage.push(pending);
     try {
-      return await streamFn(selectedModel, providerContext, options);
+      const normalizedContext = providerContext && typeof providerContext === "object"
+        ? { ...providerContext, tools: providerContext.tools ?? options?.tools ?? placeholderTools }
+        : providerContext;
+      return await streamFn(selectedModel, normalizedContext, options);
     } catch (error) {
       pending.settled = true;
       if (pending.requestId) usageLedger?.recordError?.(pending.requestId, error);

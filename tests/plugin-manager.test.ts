@@ -100,16 +100,8 @@ describe("scan", () => {
 });
 
 describe("loadAll", () => {
-  it("loads real bundled media, jimeng-cli, beautify, and office plugin contributions", async () => {
+  it("scans an empty builtin plugins directory cleanly when built-in plugins are externalized", async () => {
     const bus = await makeBus();
-    for (const type of [
-      "provider:register-runtime-media-capability-source",
-      "provider:unregister-runtime-media-capability-source",
-      "media-gen:register-adapter",
-      "media-gen:unregister-adapter",
-    ]) {
-      bus.handle(type, async () => ({ ok: true }));
-    }
     const pm = new PluginManager({
       pluginsDirs: [path.resolve("plugins")],
       dataDir,
@@ -125,50 +117,13 @@ describe("loadAll", () => {
     } as any);
 
     pm.scan();
-    try {
-      await pm.loadAll();
+    await pm.loadAll();
 
-      const diagnosticsById = new Map(pm.getDiagnostics().map((entry) => [entry.id, entry]));
-      // MCP is a core module owned by the engine, not a plugin: the plugin host
-      // must not discover it at all.
-      expect(diagnosticsById.has("mcp")).toBe(false);
-      expect(pm.routeRegistry.has("mcp")).toBe(false);
-      for (const id of ["media", "jimeng-cli", "beautify", "office"]) {
-        expect(diagnosticsById.get(id)).toMatchObject({
-          id,
-          source: "builtin",
-          hidden: true,
-          status: "loaded",
-          error: null,
-        });
-      }
-
-      const toolNames = pm.getAllTools().map((tool) => tool.name);
-      expect(toolNames).toEqual(expect.arrayContaining([
-        "media_generate-image",
-        "media_generate-video",
-        "media_describe-options",
-        "media_get-guide",
-        "beautify_create-cover",
-        "beautify_apply-cover-candidate",
-        "beautify_get-cover-style-guide",
-        "beautify_get-html-style-guide",
-        "beautify_list-capabilities",
-        "office_list-capabilities",
-        "office_read-document",
-        "office_html-to-pdf",
-      ]));
-      // 内置插件的指南走工具，不贡献 skill 目录：它们的安装路径带版本号，
-      // 冻结进会话快照后会在下次服务端更新时失效。
-      expect(pm.getSkillPaths()).toHaveLength(0);
-      expect(pm.getConfigSchema("beautify")?.properties).toHaveProperty("coverResolution");
-      // MCP is a core module now, so it contributes no settings tab here.
-      expect(pm.getSettingsTabs().some((tab) => tab.pluginId === "mcp")).toBe(false);
-    } finally {
-      for (const id of ["media", "jimeng-cli", "beautify", "office"]) {
-        await pm.unloadPlugin(id, { source: "builtin" });
-      }
-    }
+    const diagnosticsById = new Map(pm.getDiagnostics().map((entry) => [entry.id, entry]));
+    expect(diagnosticsById.has("mcp")).toBe(false);
+    expect(pm.routeRegistry.has("mcp")).toBe(false);
+    expect(pm.getSkillPaths()).toHaveLength(0);
+    expect(pm.getSettingsTabs().some((tab) => tab.pluginId === "mcp")).toBe(false);
   });
 
   it("loads plugin with index.js and calls onload", async () => {

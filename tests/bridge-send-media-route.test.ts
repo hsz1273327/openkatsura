@@ -1,15 +1,23 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 
 import { createBridgeRoute } from "../server/routes/bridge.ts";
+import { registerMockBridgeProviders } from "./helpers/register-mock-bridge-providers.ts";
 
 describe("bridge send-media route", () => {
   let tmpDir = null;
+  let cleanupMockBridgeProviders: (() => void) | null = null;
+
+  beforeEach(() => {
+    cleanupMockBridgeProviders = registerMockBridgeProviders();
+  });
 
   afterEach(() => {
+    cleanupMockBridgeProviders?.();
+    cleanupMockBridgeProviders = null;
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
     tmpDir = null;
   });

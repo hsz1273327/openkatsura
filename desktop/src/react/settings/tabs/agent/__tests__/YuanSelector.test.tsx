@@ -67,6 +67,6 @@ describe("YuanSelector", () => {
       (el) => el.textContent,
     );
     expect(names).not.toContain("kong");
-    expect(names).toEqual(["butter", "hanako", "ming"]);
+    expect(names).toEqual(["katsura", "hanako", "butter", "ming"]);
   });
 });

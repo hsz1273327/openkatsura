@@ -3855,7 +3855,8 @@ Continue the restored transcript.
       firstKeptEntryId: null,
     });
     expect(providerContexts).toHaveLength(1);
-    expect(providerContexts[0].messages.slice(0, -1)).toEqual(transcriptMessages);
+    const nonSystem = providerContexts[0].messages.filter((m: any) => m.role !== "system");
+    expect(nonSystem.slice(0, -1)).toEqual(transcriptMessages);
     expect(providerContexts[0].tools).toEqual([]);
     expect(appendCompaction).toHaveBeenCalledWith(
       summary,
@@ -4093,13 +4094,13 @@ Continue the restored transcript.
       return {};
     });
     const session: any = {
-      agent: { streamFn: originalStreamFn },
+      agent: { streamFunction: originalStreamFn },
       sessionManager: manager,
       subscribe: vi.fn(() => vi.fn()),
       abort: vi.fn(),
     };
     session.prompt = vi.fn(async () => {
-      await session.agent.streamFn(codexModel, { messages: [] }, {
+      await session.agent.streamFunction(codexModel, { messages: [] }, {
         sessionId: "pi-child",
         headers: { "x-test": "1" },
       });

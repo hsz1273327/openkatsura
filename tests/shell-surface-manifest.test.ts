@@ -161,7 +161,7 @@ describe("shell-surface-manifest.json: reverse (electron-builder config is fully
 });
 
 describe("shell-surface-manifest.json: build:theme attribution to renderer holds", () => {
-  const rendererHtmlEntries = ["index.html", "mobile.html", "settings.html", "quick-chat.html", "onboarding.html", "browser-viewer.html"];
+  const rendererHtmlEntries = ["index.html", "settings.html", "quick-chat.html", "onboarding.html", "browser-viewer.html"];
 
   it("vite.config.theme.js still outputs into desktop/dist-renderer (not a shell-owned directory)", () => {
     const themeConfig = fs.readFileSync(path.join(ROOT, "vite.config.theme.js"), "utf-8");

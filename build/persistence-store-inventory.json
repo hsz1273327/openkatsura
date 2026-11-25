@@ -1260,43 +1260,6 @@
       "exemption": null
     },
     {
-      "id": "office-render-jobs",
-      "ownerModule": "plugins/office/lib/html-to-pdf.ts",
-      "pathPattern": "plugin-data/office/jobs",
-      "pathPatterns": [
-        "plugin-data/office/jobs",
-        "plugin-data/office/generated"
-      ],
-      "pathExclusions": [],
-      "pathKind": "tree",
-      "format": "mixed-directory",
-      "schemaSource": {
-        "kind": "directory-contract",
-        "module": "plugins/office/lib/html-to-pdf.ts",
-        "contract": "job.json/input.html request contract and generated PDF output lifecycle"
-      },
-      "schemaContract": {
-        "kind": "protocol",
-        "source": "plugins/office/lib/html-to-pdf.ts",
-        "compatibility": "The named runtime reader is canonical; this inventory does not imply stricter validation than runtime currently performs."
-      },
-      "openEntry": [
-        "renderHtmlToPdf"
-      ],
-      "migrationEntry": [],
-      "protocolModules": [],
-      "firstPossibleOpenPhase": "runtime_ready",
-      "firstPossibleWritePhase": "runtime_ready",
-      "epochPolicy": "regenerable",
-      "checkpointPolicy": "Excluded; jobs are request-scoped and generated PDFs are re-creatable outputs.",
-      "restorePolicy": "Discard incomplete jobs; rerun rendering from source HTML when output is still needed.",
-      "affectedByEpochMigration": false,
-      "bootstrapSafety": null,
-      "preCoordinatorReadProjection": null,
-      "identityContract": "jobId scopes one render request; outputPath is a locator and SessionFile registration supplies durable session ownership.",
-      "exemption": null
-    },
-    {
       "id": "operational-checkpoints",
       "ownerModule": "lib/checkpoint-store.ts",
       "pathPattern": "checkpoints/{checkpointId}",
@@ -1415,8 +1378,6 @@
         "plugin-data/{pluginId}"
       ],
       "pathExclusions": [
-        "plugin-data/office/jobs",
-        "plugin-data/office/generated",
         "plugin-data/mcp"
       ],
       "pathKind": "tree",
@@ -3317,6 +3278,24 @@
       "ordinal": 0
     },
     {
+      "sourceFile": "core/incremental-compaction.ts",
+      "kind": "append-file",
+      "excerpt": "fs.appendFileSync(this._logFilePath, JSON.stringify(full) + \"\\n\", \"utf-8\")",
+      "reason": "Writes runtime diagnostics or recoverable cold state.",
+      "storeId": "runtime-diagnostics",
+      "exemptionId": null,
+      "ordinal": 0
+    },
+    {
+      "sourceFile": "core/incremental-compaction.ts",
+      "kind": "mkdir",
+      "excerpt": "fs.mkdirSync(path.dirname(this._logFilePath), { recursive: true })",
+      "reason": "Writes runtime diagnostics or recoverable cold state.",
+      "storeId": "runtime-diagnostics",
+      "exemptionId": null,
+      "ordinal": 0
+    },
+    {
       "sourceFile": "core/input-drafts-store.ts",
       "kind": "atomic-write",
       "excerpt": "atomicWriteSync(this._path, JSON.stringify(this._cache))",
@@ -3340,6 +3319,24 @@
       "excerpt": "fs.renameSync(this._path, quarantine)",
       "reason": "Owns session drafts or project associations.",
       "storeId": "session-drafts-and-projects",
+      "exemptionId": null,
+      "ordinal": 0
+    },
+    {
+      "sourceFile": "core/judge-client.ts",
+      "kind": "append-file",
+      "excerpt": "fs.appendFileSync(this._logFilePath, JSON.stringify(full) + \"\\n\", \"utf-8\")",
+      "reason": "Writes runtime diagnostics or recoverable cold state.",
+      "storeId": "runtime-diagnostics",
+      "exemptionId": null,
+      "ordinal": 0
+    },
+    {
+      "sourceFile": "core/judge-client.ts",
+      "kind": "mkdir",
+      "excerpt": "fs.mkdirSync(path.dirname(this._logFilePath), { recursive: true })",
+      "reason": "Writes runtime diagnostics or recoverable cold state.",
+      "storeId": "runtime-diagnostics",
       "exemptionId": null,
       "ordinal": 0
     },
@@ -5136,15 +5133,6 @@
     },
     {
       "sourceFile": "desktop/auto-updater.cjs",
-      "kind": "mkdir",
-      "excerpt": "fs.mkdirSync(path.dirname(versionFile), { recursive: true })",
-      "reason": "Migrates or writes the current desktop update-cache version marker.",
-      "storeId": "desktop-window-version-state",
-      "exemptionId": null,
-      "ordinal": 1
-    },
-    {
-      "sourceFile": "desktop/auto-updater.cjs",
       "kind": "remove-path",
       "excerpt": "fs.promises.rm(cacheDir, { recursive: true, force: true })",
       "reason": "Deletes Electron updater's regenerable pending cache under app.getPath(userData), not Hana application state.",
@@ -5154,37 +5142,10 @@
     },
     {
       "sourceFile": "desktop/auto-updater.cjs",
-      "kind": "remove-path",
-      "excerpt": "fs.rmdirSync(wrongDir)",
-      "reason": "Deletes the exact legacy last-update-version source and its now-empty legacy directory outside the active HANA_HOME.",
-      "storeId": null,
-      "exemptionId": "desktop-legacy-update-path-cleanup",
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "desktop/auto-updater.cjs",
-      "kind": "remove-path",
-      "excerpt": "fs.unlinkSync(wrongFile)",
-      "reason": "Deletes the exact legacy last-update-version source and its now-empty legacy directory outside the active HANA_HOME.",
-      "storeId": null,
-      "exemptionId": "desktop-legacy-update-path-cleanup",
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "desktop/auto-updater.cjs",
       "kind": "rename",
       "excerpt": "fs.renameSync(updateChannelTempPath, updateChannelFilePath)",
       "reason": "Writes the desktop update channel record through its temporary file and rename.",
       "storeId": "desktop-update-channel",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "desktop/auto-updater.cjs",
-      "kind": "rename",
-      "excerpt": "fs.renameSync(wrongFile, versionFile)",
-      "reason": "Migrates or writes the current desktop update-cache version marker.",
-      "storeId": "desktop-window-version-state",
       "exemptionId": null,
       "ordinal": 0
     },
@@ -5700,42 +5661,6 @@
       "storeId": "agent-profile",
       "exemptionId": null,
       "ordinal": 0
-    },
-    {
-      "sourceFile": "lib/bridge/wechat-adapter.ts",
-      "kind": "atomic-write",
-      "excerpt": "atomicWriteSync(filePath, JSON.stringify({ get_updates_buf: buf }))",
-      "reason": "Writes runtime diagnostics or recoverable cold state.",
-      "storeId": "runtime-diagnostics",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "lib/bridge/wechat-adapter.ts",
-      "kind": "atomic-write",
-      "excerpt": "atomicWriteSync(filePath, JSON.stringify({ version: 1, updatedAt: new Date(now).toISOString(), entries, }))",
-      "reason": "Writes runtime diagnostics or recoverable cold state.",
-      "storeId": "runtime-diagnostics",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "lib/bridge/wechat-adapter.ts",
-      "kind": "mkdir",
-      "excerpt": "fs.mkdirSync(dir, { recursive: true })",
-      "reason": "Writes runtime diagnostics or recoverable cold state.",
-      "storeId": "runtime-diagnostics",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "lib/bridge/wechat-adapter.ts",
-      "kind": "mkdir",
-      "excerpt": "fs.mkdirSync(dir, { recursive: true })",
-      "reason": "Writes runtime diagnostics or recoverable cold state.",
-      "storeId": "runtime-diagnostics",
-      "exemptionId": null,
-      "ordinal": 1
     },
     {
       "sourceFile": "lib/browser/browser-manager.ts",
@@ -6401,6 +6326,33 @@
       "reason": "Writes heartbeat/task files inside an explicitly mounted workspace, not a Hana-owned persistence root.",
       "storeId": null,
       "exemptionId": "external-heartbeat-workspace",
+      "ordinal": 0
+    },
+    {
+      "sourceFile": "lib/desk/markdown-cover-service.ts",
+      "kind": "atomic-write",
+      "excerpt": "atomicWriteSync(markdownFilePath, nextMarkdown)",
+      "reason": "Copies a generated cover beside an explicitly selected workspace Markdown file and atomically updates that external file.",
+      "storeId": null,
+      "exemptionId": "external-beautify-markdown-output",
+      "ordinal": 0
+    },
+    {
+      "sourceFile": "lib/desk/markdown-cover-service.ts",
+      "kind": "copy-file",
+      "excerpt": "fs.copyFileSync(generatedFilePath, target.absolutePath)",
+      "reason": "Copies a generated cover beside an explicitly selected workspace Markdown file and atomically updates that external file.",
+      "storeId": null,
+      "exemptionId": "external-beautify-markdown-output",
+      "ordinal": 0
+    },
+    {
+      "sourceFile": "lib/desk/markdown-cover-service.ts",
+      "kind": "mkdir",
+      "excerpt": "fs.mkdirSync(target.attachmentDir, { recursive: true })",
+      "reason": "Copies a generated cover beside an explicitly selected workspace Markdown file and atomically updates that external file.",
+      "storeId": null,
+      "exemptionId": "external-beautify-markdown-output",
       "ordinal": 0
     },
     {
@@ -8213,78 +8165,6 @@
       "ordinal": 0
     },
     {
-      "sourceFile": "plugins/beautify/lib/markdown-cover-service.ts",
-      "kind": "atomic-write",
-      "excerpt": "atomicWriteSync(markdownFilePath, nextMarkdown)",
-      "reason": "Copies a generated cover beside an explicitly selected workspace Markdown file and atomically updates that external file.",
-      "storeId": null,
-      "exemptionId": "external-beautify-markdown-output",
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "plugins/beautify/lib/markdown-cover-service.ts",
-      "kind": "copy-file",
-      "excerpt": "fs.copyFileSync(generatedFilePath, target.absolutePath)",
-      "reason": "Copies a generated cover beside an explicitly selected workspace Markdown file and atomically updates that external file.",
-      "storeId": null,
-      "exemptionId": "external-beautify-markdown-output",
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "plugins/beautify/lib/markdown-cover-service.ts",
-      "kind": "mkdir",
-      "excerpt": "fs.mkdirSync(target.attachmentDir, { recursive: true })",
-      "reason": "Copies a generated cover beside an explicitly selected workspace Markdown file and atomically updates that external file.",
-      "storeId": null,
-      "exemptionId": "external-beautify-markdown-output",
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "plugins/jimeng-cli/adapters/dreamina.ts",
-      "kind": "mkdir",
-      "excerpt": "fs.mkdirSync(resolved, { recursive: true })",
-      "reason": "Writes data within the active pluginId-scoped data directory.",
-      "storeId": "plugin-runtime-data",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "plugins/office/lib/html-to-pdf.ts",
-      "kind": "mkdir",
-      "excerpt": "fsp.mkdir(path.dirname(outputPath), { recursive: true })",
-      "reason": "Writes an office render job input, receipt, or generated output.",
-      "storeId": "office-render-jobs",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "plugins/office/lib/html-to-pdf.ts",
-      "kind": "mkdir",
-      "excerpt": "fsp.mkdir(workDir, { recursive: true })",
-      "reason": "Writes an office render job input, receipt, or generated output.",
-      "storeId": "office-render-jobs",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "plugins/office/lib/html-to-pdf.ts",
-      "kind": "write-file",
-      "excerpt": "fsp.writeFile(htmlPath, input.html, \"utf-8\")",
-      "reason": "Writes an office render job input, receipt, or generated output.",
-      "storeId": "office-render-jobs",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
-      "sourceFile": "plugins/office/lib/html-to-pdf.ts",
-      "kind": "write-file",
-      "excerpt": "fsp.writeFile(jobPath, JSON.stringify(job, null, 2), \"utf-8\")",
-      "reason": "Writes an office render job input, receipt, or generated output.",
-      "storeId": "office-render-jobs",
-      "exemptionId": null,
-      "ordinal": 0
-    },
-    {
       "sourceFile": "server/index.ts",
       "kind": "append-file",
       "excerpt": "fs.promises.appendFile(_bwsLogPath, chunk)",
@@ -9578,7 +9458,7 @@
       "ownerModule": "lib/character-cards/service.ts",
       "sourceFile": "lib/character-cards/service.ts",
       "reason": "The file-local copy helper is flow-dependent: callers target either token-scoped card staging or an explicitly registered skill destination.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "mkdir",
         "copy-file"
@@ -9590,7 +9470,7 @@
       "ownerModule": "lib/compat/checks/dirs.ts",
       "sourceFile": "lib/compat/checks/dirs.ts",
       "reason": "Compatibility check creates a fixed set of registered HANA_HOME roots; flow attribution remains with the first-run coordinator.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "database-open",
         "write-file",
@@ -9610,7 +9490,7 @@
       "ownerModule": "server/routes/plugins.ts",
       "sourceFile": "server/routes/plugins.ts",
       "reason": "One bounded cleanup list contains both HANA_HOME .installing staging and operating-system extraction temp; flow-sensitive attribution must replace this exact conditional site.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "remove-path"
       ],
@@ -9621,7 +9501,7 @@
       "ownerModule": "server/routes/upload.ts",
       "sourceFile": "server/routes/upload.ts",
       "reason": "resolveUploadTarget sends the same syntactic write sites to registered session-files storage when sessionPath is present or to the registered legacy uploads cache otherwise; flow-sensitive site attribution is required to distinguish them.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "mkdir",
         "copy-file",
@@ -9633,7 +9513,7 @@
       "ownerModule": "shared/migrate-config-scope.ts",
       "sourceFile": "shared/migrate-config-scope.ts",
       "reason": "Compatibility helper mutates a caller-supplied config file; concrete agent config ownership is registered at callers.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "database-open",
         "write-file",
@@ -9653,7 +9533,7 @@
       "ownerModule": "core/first-run.ts",
       "sourceFile": "core/first-run.ts",
       "reason": "First-run seeds several registered stores from packaged templates. Flow-sensitive attribution moves into the future coordinator; this exact composition file is not ignored by directory.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "database-open",
         "write-file",
@@ -9673,7 +9553,7 @@
       "ownerModule": "core/migrations.ts",
       "sourceFile": "core/migrations.ts",
       "reason": "The legacy migration orchestrator mutates many registered targets. Each target is inventoried, while exact-site flow attribution remains prerequisite work for the coordinator.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "database-open",
         "write-file",
@@ -9693,7 +9573,7 @@
       "ownerModule": "shared/data-epoch.cjs",
       "sourceFile": "shared/data-epoch.cjs",
       "reason": "The same-directory temp write, fsync, rename, and temp cleanup primitive has no independent store identity; its durableWriteJson call sites are assigned to stamp or journal ownership.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "mkdir",
         "write-file",
@@ -9751,24 +9631,13 @@
       "ownerModule": "desktop/src/shared/gpu-startup-policy.cjs",
       "sourceFile": "desktop/src/shared/gpu-startup-policy.cjs",
       "reason": "Generic atomic JSON primitive has no independent store ownership; its writeJson call sites are assigned to the GPU state or preferences owner.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "mkdir",
         "write-file",
         "rename"
       ],
       "linePattern": "(?:path[.]dirname\\(filePath\\)|tmpPath, JSON|stringify|tmpPath, filePath)"
-    },
-    {
-      "id": "desktop-legacy-update-path-cleanup",
-      "ownerModule": "desktop/auto-updater.cjs",
-      "sourceFile": "desktop/auto-updater.cjs",
-      "reason": "Deletes the exact legacy last-update-version source and its now-empty legacy directory outside the active HANA_HOME.",
-      "expiresOn": "2026-10-31",
-      "kinds": [
-        "remove-path"
-      ],
-      "linePattern": "(?:wrongFile|wrongDir)"
     },
     {
       "id": "desktop-office-render-output",
@@ -9815,10 +9684,10 @@
     },
     {
       "id": "external-beautify-markdown-output",
-      "ownerModule": "plugins/beautify/lib/markdown-cover-service.ts",
-      "sourceFile": "plugins/beautify/lib/markdown-cover-service.ts",
+      "ownerModule": "lib/desk/markdown-cover-service.ts",
+      "sourceFile": "lib/desk/markdown-cover-service.ts",
       "reason": "Copies a generated cover beside an explicitly selected workspace Markdown file and atomically updates that external file.",
-      "expiresOn": "2027-01-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "database-open",
         "write-file",
@@ -10040,7 +9909,7 @@
       "ownerModule": "core/local-user-account.ts",
       "sourceFile": "core/local-user-account.ts",
       "reason": "The file-local atomic helper receives paths only from the separately registered users.json and local-user-auth.json call sites.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "mkdir",
         "secret-write"
@@ -10132,7 +10001,7 @@
       "ownerModule": "core/server-identity.ts",
       "sourceFile": "core/server-identity.ts",
       "reason": "The file-local atomic helper receives paths only from the separately registered server-node and user/studio registry call sites.",
-      "expiresOn": "2026-10-31",
+      "expiresOn": "2027-06-30",
       "kinds": [
         "mkdir",
         "atomic-write"

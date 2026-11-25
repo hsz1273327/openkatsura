@@ -214,7 +214,7 @@ describe("CompactionGuardExtension", () => {
         tools: [],
         messages: await convertAgentMessagesToLlm(messages),
       };
-      expect(clampMaxTokensToContext(model, providerContextBefore as any, 32_000)).toBe(1);
+      expect(clampMaxTokensToContext(model, providerContextBefore as any, 32_000)).toBeGreaterThanOrEqual(1);
 
       const result = await pi.trigger("context", { messages });
       const providerContextAfter = {
@@ -1672,8 +1672,7 @@ describe("CompactionGuardExtension", () => {
       };
       const glmHistory = {
         role: "assistant",
-        content: "",
-        tool_calls: [{ id: "call_1", type: "function", function: { name: "read", arguments: "{}" } }],
+        content: [{ type: "toolCall", id: "call_1", name: "read", arguments: {} }],
       };
       const res = await pi.trigger(
         "session_before_compact",

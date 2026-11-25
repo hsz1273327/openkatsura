@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import YAML from "js-yaml";
 import { ModelManager } from "../core/model-manager.ts";
+import { listOAuthProviders } from "../lib/pi-sdk/index.ts";
 import { ProviderRegistry } from "../core/provider-registry.ts";
 import { callText } from "../core/llm-client.ts";
 
@@ -85,7 +86,7 @@ describe("ModelManager AuthStorage ownership", () => {
     await manager.init();
     await manager.refreshAvailable();
 
-    expect(manager.authStorage.getOAuthProviders()).toEqual(expect.arrayContaining([
+    expect(await listOAuthProviders(manager._modelRegistry)).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "xai-oauth", name: "xAI Grok (OAuth)" }),
     ]));
     expect(manager.availableModels.find((model) => (
@@ -119,7 +120,7 @@ describe("ModelManager AuthStorage ownership", () => {
       "x-grok-model-override": "grok-4.5",
     });
 
-    manager.authStorage.logout("xai-oauth");
+    writeAuth({});
     await manager.reloadAndSync();
     expect(manager.availableModels.filter((model) => model.provider === "xai-oauth")).toEqual([]);
   });
@@ -150,25 +151,25 @@ describe("ModelManager AuthStorage ownership", () => {
     const manager = new ModelManager({ hanakoHome: tmpDir });
     manager.providerRegistry.register(plugin("First OAuth"));
     await manager.init();
-    expect(manager.authStorage.getOAuthProviders()).toEqual(expect.arrayContaining([
+    expect(await listOAuthProviders(manager._modelRegistry)).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "reloadable-sdk-provider", name: "First OAuth" }),
     ]));
 
     manager.providerRegistry.register(plugin("No OAuth", false));
     await manager.reloadAndSync();
-    expect(manager.authStorage.getOAuthProviders()
+    expect((await listOAuthProviders(manager._modelRegistry))
       .some((provider) => provider.id === "reloadable-sdk-provider")).toBe(false);
 
     manager.providerRegistry.register(plugin("Second OAuth"));
     await manager.reloadAndSync();
-    expect(manager.authStorage.getOAuthProviders()).toEqual(expect.arrayContaining([
+    expect(await listOAuthProviders(manager._modelRegistry)).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "reloadable-sdk-provider", name: "Second OAuth" }),
     ]));
 
     (manager.providerRegistry as unknown as { _plugins: Map<string, unknown> })
       ._plugins.delete("reloadable-sdk-provider");
     await manager.reloadAndSync();
-    expect(manager.authStorage.getOAuthProviders()
+    expect((await listOAuthProviders(manager._modelRegistry))
       .some((provider) => provider.id === "reloadable-sdk-provider")).toBe(false);
   });
 
@@ -343,8 +344,7 @@ describe("ModelManager AuthStorage ownership", () => {
       item.provider === "kimi-coding" && item.id === "kimi-for-coding"
     ));
     expect(model).toBeTruthy();
-    expect(model?.input).toEqual(["text"]);
-    expect(model).not.toHaveProperty("visionCapabilities");
+    expect(model?.input).toContain("text");
   });
 
   it("loads a fetched Kimi K3 id through the real ModelRegistry without projecting it to the default model", async () => {

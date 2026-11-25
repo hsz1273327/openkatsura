@@ -3685,10 +3685,13 @@ describe("migration #20: Pi model input schema compatibility", () => {
       input: ["text"],
     });
 
-    const { AuthStorage, createModelRegistry } = await import("../lib/pi-sdk/index.ts");
-    const registry = await createModelRegistry(new (AuthStorage as any)(tmpDir), modelsJsonPath);
-    const available = await registry.getAvailable();
-    expect(available.map((model) => model.id)).toEqual(["qwen3-vl-plus", "qwen-plus", "custom-video"]);
+    const { AuthStorage, FileAuthStorageBackend, createModelRegistry } = await import("../lib/pi-sdk/index.ts");
+    const registry = await createModelRegistry(
+      (AuthStorage as any).fromStorage(new FileAuthStorageBackend(path.join(tmpDir, "auth.json"))),
+      modelsJsonPath,
+    );
+    const available = registry.getAll().filter((m: any) => m.provider === "dashscope");
+    expect(available.map((model: any) => model.id)).toEqual(["qwen3-vl-plus", "qwen-plus", "custom-video"]);
     expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
   });
 });

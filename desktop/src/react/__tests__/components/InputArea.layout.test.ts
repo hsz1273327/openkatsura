@@ -65,18 +65,6 @@ describe('InputArea layout', () => {
     expect(inputWrapperBlock).toMatch(/padding:\s*var\(--space-16\)\s+var\(--space-16\)\s+var\(--space-8\)/);
   });
 
-  it('keeps mobile drawers out of the flex layout while they close', () => {
-    const css = fs.readFileSync(
-      path.join(process.cwd(), 'desktop/src/react/mobile/MobileApp.css'),
-      'utf8',
-    );
-
-    expect(css).toMatch(/\.mobile-desktop-root\s*\{[^}]*font-size:\s*var\(--fs-title\)/s);
-    expect(css).toMatch(/\.mobile-desktop-root \.sidebar,\s*\.mobile-desktop-root \.jian-sidebar\s*\{[^}]*position:\s*fixed/s);
-    expect(css).toMatch(/\.mobile-desktop-root \.sidebar,\s*\.mobile-desktop-root \.jian-sidebar\s*\{[^}]*box-shadow:\s*none/s);
-    expect(css).toMatch(/\.mobile-desktop-root \.jian-sidebar-inner\s*\{[^}]*box-shadow:\s*none/s);
-  });
-
   it('keeps the mobile model selector content-sized and aligned with icon buttons', () => {
     const css = fs.readFileSync(
       path.join(process.cwd(), 'desktop/src/react/components/input/InputArea.module.css'),

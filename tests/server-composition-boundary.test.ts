@@ -41,9 +41,7 @@ const root = process.cwd();
 const PRE_REFACTOR_MOUNT_CALLS = Object.freeze([
   '"" :: chatWsRoute',
   '"" :: createHtmlPreviewRoute',
-  '"" :: createMobileStaticRoute',
   '"/api" :: chatRestRoute',
-  '"/api" :: createAccessRoute',
   '"/api" :: createAgentsRoute',
   '"/api" :: createAuthRoute',
   '"/api" :: createAvatarRoute',
@@ -56,7 +54,6 @@ const PRE_REFACTOR_MOUNT_CALLS = Object.freeze([
   '"/api" :: createConfigRoute',
   '"/api" :: createConfirmRoute',
   '"/api" :: createDeskRoute',
-  '"/api" :: createDevicesRoute',
   '"/api" :: createDiaryRoute',
   '"/api" :: createDmRoute',
   '"/api" :: createExperimentsRoute',
@@ -64,12 +61,12 @@ const PRE_REFACTOR_MOUNT_CALLS = Object.freeze([
   '"/api" :: createFileHistoryRoute',
   '"/api" :: createFsRoute',
   '"/api" :: createInputDraftsRoute',
+  '"/api" :: createJudgeRoute',
   // Added after the split: the MCP surface used to reach the app through the
   // generic plugin route proxy, so it had no factory of its own here.
   '"/api" :: createMcpRoute',
   '"/api" :: createMediaRoute',
   '"/api" :: createMemoryDreamRoute',
-  '"/api" :: createMobileWorkbenchRoute',
   '"/api" :: createModelsRoute',
   '"/api" :: createPluginsRoute',
   '"/api" :: createPreferencesRoute',
@@ -111,11 +108,11 @@ describe("composition boundary behavior lock: sorted mount-call inventory", () =
     expect(combined).toEqual([...PRE_REFACTOR_MOUNT_CALLS]);
   });
 
-  it("mobile-workbench (evidence-needed) is mounted directly by server/index.ts itself, not absorbed into open-root.ts or full-root.ts", () => {
+  it("mobile-workbench has been removed and is not mounted by server/index.ts or composition roots", () => {
     const indexPairs = extractMountCalls(path.join(root, "server", "index.ts"));
     const openRootPairs = extractMountCalls(path.join(root, "server", "composition", "open-root.ts"));
 
-    expect(indexPairs).toContain('"/api" :: createMobileWorkbenchRoute');
+    expect(indexPairs).not.toContain('"/api" :: createMobileWorkbenchRoute');
     expect(openRootPairs).not.toContain('"/api" :: createMobileWorkbenchRoute');
   });
 

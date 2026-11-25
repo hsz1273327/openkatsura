@@ -97,20 +97,14 @@ describe("server runtime assets", () => {
       .toThrow(/required runtime asset missing: .*Butter\.png/);
   });
 
-  it("copies the mobile renderer bundle into the bundled server root", () => {
+  it("copies shared assets into the bundled server root when present", () => {
     const copied = copyServerRuntimeAssets({ rootDir, outDir });
 
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "mobile.html"), "utf-8"))
-      .toContain("<title>Mobile</title>");
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "assets", "mobile.js"), "utf-8"))
-      .toContain("console.log('mobile')");
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "assets", "shared.js"), "utf-8"))
-      .toContain("console.log('shared')");
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "assets", "mobile.css"), "utf-8"))
-      .toContain("background");
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "assets", "paper.png"), "utf-8"))
-      .toBe("paper");
-    expect(copied).toContain(path.join("desktop", "dist-renderer") + path.sep);
+    expect(copied).toEqual(expect.arrayContaining([
+      path.join("desktop", "src", "assets", "Hanako.png"),
+      path.join("desktop", "src", "assets", "character-cards") + path.sep,
+      path.join("desktop", "src", "assets", "cover-gallery") + path.sep,
+    ]));
   });
 
   it("excludes source maps and desktop-only renderer files from the server runtime", () => {

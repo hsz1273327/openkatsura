@@ -291,10 +291,12 @@ describe("session-compactor", () => {
     const [model, , options] = (streamFn.mock.calls as any)[0];
     const context = providerContext;
     expect(model).toEqual({ id: "model", reasoning: true });
-    expect(context!.systemPrompt).toBe("agent system prompt");
+    const sysMsg = context!.messages.find((m: any) => m.role === "system");
+    expect(context!.systemPrompt ?? sysMsg?.content).toBe("agent system prompt");
     expect(context!.tools.map((tool) => tool.name)).toEqual(["read"]);
-    expect(context!.messages).toHaveLength(4);
-    expect(context!.messages.slice(0, -1)).toEqual([
+    const nonSystem = context!.messages.filter((m: any) => m.role !== "system");
+    expect(nonSystem).toHaveLength(4);
+    expect(nonSystem.slice(0, -1)).toEqual([
       previousSummaryMessage,
       oldMessage,
       retainedTail,
@@ -574,7 +576,7 @@ describe("session-compactor", () => {
       usageLedger: ledger,
       usageContext,
     });
-    expect(capturedRequests[0].slice(0, -1)).toEqual(liveBeforeFirst);
+    expect(capturedRequests[0].filter((m: any) => m.role !== "system").slice(0, -1)).toEqual(liveBeforeFirst);
 
     const newUser = piUser("NEW_USER_AFTER_SUMMARY_ONE", 4);
     const newAssistant = piAssistant("NEW_ASSISTANT_AFTER_SUMMARY_ONE", 5);
@@ -598,7 +600,7 @@ describe("session-compactor", () => {
       usageLedger: ledger,
       usageContext,
     });
-    const secondPrefix = capturedRequests[1].slice(0, -1);
+    const secondPrefix = capturedRequests[1].filter((m: any) => m.role !== "system").slice(0, -1);
     const secondSerialized = JSON.stringify(secondPrefix);
     expect(secondPrefix).toEqual(liveBeforeSecond);
     expect(secondSerialized).toContain("Summary-1 checkpoint.");
@@ -655,7 +657,7 @@ describe("session-compactor", () => {
     ];
     const streamFn = vi.fn(async (_model, context) => {
       expect(context.tools).toEqual([]);
-      expect(context.messages.slice(0, -1)).toEqual(transcriptMessages);
+      expect(context.messages.filter((m: any) => m.role !== "system").slice(0, -1)).toEqual(transcriptMessages);
       return agentStreamOf();
     });
 
@@ -1950,7 +1952,8 @@ describe("session-compactor", () => {
     } as any);
 
     const [, context] = streamFn.mock.calls[0] as any;
-    const projected = context.messages[0].content[0];
+    const nonSystemMsgs = context.messages.filter((m: any) => m.role !== "system");
+    const projected = nonSystemMsgs[0].content[0];
     expect(projected.type).toBe("text");
     expect(projected.text).toContain("uri: file:///workspace/spec.md");
     expect(projected.text).toContain("name: spec.md");
