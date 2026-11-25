@@ -9,7 +9,7 @@
 import type {
   HanaBridgeConfigField,
   HanaBridgeProviderDefinition,
-} from "@hana/plugin-runtime";
+} from "../../packages/plugin-runtime/src/index.ts";
 import {
   registerSessionPrefixes,
   unregisterSessionPrefixes,
