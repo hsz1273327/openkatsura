@@ -215,7 +215,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "YOUR_GITHUB_USERNAME",
+        "owner": "hsz1273327",
         "repo": "openkatsura"
       }
     ],

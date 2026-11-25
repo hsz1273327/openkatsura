@@ -9,7 +9,7 @@
 <p align="center"><a href="README.md">中文版</a></p>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](https://github.com/hsz1273327/openkatsura/releases)
 
 > **Origin & Attribution**: OpenKatsura is a derivative work forked from [liliMozi/openhanako](https://github.com/liliMozi/openhanako) (HanaAgent `v0.450.0`, Apache License 2.0). It retains the original Apache-2.0 license and copyright notices while maintaining independent changes:
 > - Upgraded the underlying Pi SDK engine (`@earendil-works/pi-*`) from `0.80.3` to `1.6.0`;
