@@ -1851,7 +1851,7 @@ export async function runCachePreservingCompactionForSession(session: any, {
           })
         : null,
       outputPolicy: COMPACTION_OUTPUT_POLICIES.PROVIDER_DEFAULT,
-      streamFn: session.agent.streamFn,
+      streamFn: session.agent.streamFunction ?? session.agent.streamFn,
       streamOptions: {
         sessionId: session.agent.sessionId,
         onPayload: session.agent.onPayload,
