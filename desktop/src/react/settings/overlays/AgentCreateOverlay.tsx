@@ -11,7 +11,7 @@ export function AgentCreateOverlay() {
   const showToast = useSettingsStore(s => s.showToast);
   const [visible, setVisible] = useState(false);
   const [name, setName] = useState('');
-  const [yuan, setYuan] = useState('hanako');
+  const [yuan, setYuan] = useState('katsura');
   const [creating, setCreating] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [dragActive, setDragActive] = useState(false);

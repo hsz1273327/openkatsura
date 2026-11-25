@@ -5454,7 +5454,7 @@ wrapIpcHandler("get-avatar-path", (_event, role) => {
 wrapIpcHandler("get-splash-info", () => {
   try {
     const agentId = getCurrentAgentId();
-    if (!agentId) return { agentName: null, locale: "zh-CN", yuan: "hanako" };
+    if (!agentId) return { agentName: null, locale: "zh-CN", yuan: "katsura" };
     const configPath = path.join(hanakoHome, "agents", agentId, "config.yaml");
     const text = fs.readFileSync(configPath, "utf-8");
     // 简易提取：agent:\n  name: xxx / yuan: xxx 和顶层 locale: xxx
@@ -5464,10 +5464,10 @@ wrapIpcHandler("get-splash-info", () => {
     return {
       agentName: agentMatch?.[1]?.trim() || null,
       locale: localeMatch?.[1]?.trim() || null,
-      yuan: yuanMatch?.[1]?.trim() || "hanako",
+      yuan: yuanMatch?.[1]?.trim() || "katsura",
     };
   } catch {
-    return { agentName: null, locale: "zh-CN", yuan: "hanako" };
+    return { agentName: null, locale: "zh-CN", yuan: "katsura" };
   }
 });
 

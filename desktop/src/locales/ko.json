@@ -557,7 +557,7 @@
   "yuan": {
     "types": {
       "katsura": {
-        "label": "기본 균형형 어시스턴트 (OpenKatsura)",
+        "label": "기본 균형 어시스턴트",
         "avatar": "Katsura.png"
       },
       "hanako": {

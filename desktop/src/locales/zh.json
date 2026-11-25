@@ -512,7 +512,7 @@
   "yuan": {
     "types": {
       "katsura": {
-        "label": "默认均衡助手（OpenKatsura）",
+        "label": "默认均衡助手",
         "avatar": "Katsura.png"
       },
       "hanako": {
