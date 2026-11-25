@@ -1,8 +1,0 @@
-{
-  "id": "bridge-wechat",
-  "name": "微信 iLink 机器人",
-  "version": "1.0.0",
-  "description": "通过微信 iLink 协议与扫码登录接入微信对话。",
-  "trust": "full-access",
-  "activationEvents": ["onStartup"]
-}

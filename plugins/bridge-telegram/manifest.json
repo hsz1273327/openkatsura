@@ -1,8 +1,0 @@
-{
-  "id": "bridge-telegram",
-  "name": "Telegram 机器人",
-  "version": "1.0.0",
-  "description": "通过 Telegram Bot API 长轮询接入私聊与群聊。",
-  "trust": "full-access",
-  "activationEvents": ["onStartup"]
-}

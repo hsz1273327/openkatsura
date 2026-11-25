@@ -1,8 +1,0 @@
-{
-  "id": "bridge-dingtalk",
-  "name": "钉钉机器人",
-  "version": "1.0.0",
-  "description": "通过钉钉企业应用机器人 Stream 长连接接入钉钉。",
-  "trust": "full-access",
-  "activationEvents": ["onStartup"]
-}

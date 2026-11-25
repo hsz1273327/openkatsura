@@ -1,8 +1,0 @@
-{
-  "id": "bridge-feishu",
-  "name": "飞书 / Lark 机器人",
-  "version": "1.0.0",
-  "description": "通过飞书开放平台 WebSocket 长连接接入飞书与 Lark。",
-  "trust": "full-access",
-  "activationEvents": ["onStartup"]
-}

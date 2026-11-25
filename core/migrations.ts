@@ -46,10 +46,6 @@ import {
 } from "./session-permission-mode.ts";
 import { lookupKnown } from "../shared/known-models.ts";
 import { SESSION_PREFIX_MAP } from "../lib/bridge/session-key.ts";
-import {
-  DINGTALK_LEGACY_AUTH_MODE,
-  canonicalizeDingTalkBridgeConfig,
-} from "../plugins/bridge-dingtalk/dingtalk-contract.ts";
 import { migrateLegacyApiKeyAuthToProviders } from "./provider-auth-migration.ts";
 import { createModuleLogger } from "../lib/debug-log.ts";
 import { patchAutomationJobForMigration } from "../lib/desk/automation-normalizer.ts";
@@ -2417,12 +2413,15 @@ function migrateStableDingTalkCredentialsToLegacyAuthMode(ctx) {
       .some((key) => Object.prototype.hasOwnProperty.call(dingtalk, key));
     if (!hasLegacyPersistentKey) continue;
 
-    let canonical;
+    let canonical: Record<string, any>;
     try {
-      canonical = canonicalizeDingTalkBridgeConfig({
+      canonical = {
         ...dingtalk,
-        authMode: DINGTALK_LEGACY_AUTH_MODE,
-      });
+        authMode: "legacy_app",
+        ...(dingtalk.clientId == null && dingtalk.appKey != null ? { clientId: dingtalk.appKey } : {}),
+        ...(dingtalk.clientSecret == null && dingtalk.appSecret != null ? { clientSecret: dingtalk.appSecret } : {}),
+        ...(dingtalk.apiBaseUrl == null && dingtalk.restBaseUrl != null ? { apiBaseUrl: dingtalk.restBaseUrl } : {}),
+      };
       delete canonical.appKey;
       delete canonical.appSecret;
       delete canonical.restBaseUrl;
