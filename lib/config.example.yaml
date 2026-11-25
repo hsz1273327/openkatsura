@@ -5,8 +5,8 @@
 
 # 身份信息
 agent:
-  name: Hanako                           # 你的助手叫什么
-  yuan: hanako                           # 源模板：hanako / butter / ming
+  name: Katsura                          # 你的助手叫什么
+  yuan: katsura                          # 源模板：katsura / hanako / butter / ming / kong
 # 你的名字存在全局设置里（所有助手共用一个），这里留空即可。
 # 只有想让某个助手用不一样的称呼叫你时，才在它自己的配置里填这一项。
 user:

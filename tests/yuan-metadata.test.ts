@@ -32,13 +32,14 @@ describe("yuan metadata", () => {
   });
 
   it("pins the declared block names", () => {
+    expect(getYuanThinkingBlock("katsura")).toBe("MOOD");
     expect(getYuanThinkingBlock("hanako")).toBe("MOOD");
     expect(getYuanThinkingBlock("butter")).toBe("PULSE");
     expect(getYuanThinkingBlock("ming")).toBe("沉思");
     expect(getYuanThinkingBlock("kong")).toBeNull();
   });
 
-  for (const yuan of ["hanako", "butter", "ming", "kong"]) {
+  for (const yuan of ["katsura", "hanako", "butter", "ming", "kong"]) {
     it(`keeps ${yuan}'s declaration and template in agreement`, () => {
       const declared = getYuanThinkingBlock(yuan);
       const headings = blockHeadings(readTemplate(yuan));

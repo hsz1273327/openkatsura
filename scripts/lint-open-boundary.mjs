@@ -170,6 +170,7 @@ export function resolveRelativeSpecifier({ rootDir = REPOSITORY_ROOT, importerRe
   if (!specifierText.startsWith(".")) return null;
   const importerDir = path.dirname(importerRelPath);
   const rawTarget = toPosix(path.normalize(path.join(importerDir, specifierText)));
+  if (rawTarget.startsWith("node_modules/")) return null;
 
   const candidates = [];
   if (CANDIDATE_EXTENSIONS.some((ext) => rawTarget.endsWith(ext))) {

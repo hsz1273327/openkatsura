@@ -409,31 +409,34 @@ function firstNonEmptyLine(text) {
 
 function defaultAvatarForYuan(yuan) {
   const fileName = {
+    katsura: "Katsura.png",
     hanako: "Hanako.png",
     butter: "Butter.png",
     ming: "Ming.png",
     kong: "Kong.png",
-  }[yuan] || "Hanako.png";
+  }[yuan] || "Katsura.png";
   return fromRoot("desktop", "src", "assets", fileName);
 }
 
 function defaultCardBackForYuan(yuan) {
   const fileName = {
+    katsura: "yuan-katsura-card-back.png",
     hanako: "yuan-hanako-card-back.png",
     butter: "yuan-butter-card-back.png",
     ming: "yuan-ming-card-back.png",
     kong: "yuan-kong-card-back.png",
-  }[yuan] || "yuan-hanako-card-back.png";
+  }[yuan] || "yuan-katsura-card-back.png";
   return fromRoot("desktop", "src", "assets", "character-cards", fileName);
 }
 
 function defaultYuanIconForYuan(yuan) {
   const fileName = {
+    katsura: "yuan-katsura-emblem.png",
     hanako: "yuan-hanako-emblem.png",
     butter: "yuan-butter-emblem.png",
     ming: "yuan-ming-emblem.png",
     kong: "yuan-kong-emblem.png",
-  }[yuan] || "yuan-hanako-emblem.png";
+  }[yuan] || "yuan-katsura-emblem.png";
   return fromRoot("desktop", "src", "assets", "character-cards", fileName);
 }
 

@@ -75,9 +75,9 @@ describe("Unified Bridge Plugin Contract & Registry", () => {
   });
 
   it("wires EventBus register/unregister handlers identically to media-gen plugins", () => {
-    const handlers = new Map<string, Function>();
+    const handlers = new Map<string, (...args: any[]) => any>();
     const fakeBus = {
-      handle: (type: string, fn: Function) => {
+      handle: (type: string, fn: (...args: any[]) => any) => {
         handlers.set(type, fn);
         return () => handlers.delete(type);
       },

@@ -6,9 +6,16 @@ export interface YuanVisual {
   avatar: string;
 }
 
-const FALLBACK_YUAN = "hanako";
+const FALLBACK_YUAN = "katsura";
 
 export const YUAN_VISUALS: Readonly<Record<string, Readonly<YuanVisual>>> = Object.freeze({
+  katsura: Object.freeze({
+    yuan: "katsura",
+    symbol: "✿",
+    moodLabel: "MOOD",
+    accent: "#4A6FA5",
+    avatar: "Katsura.png",
+  }),
   hanako: Object.freeze({
     yuan: "hanako",
     symbol: "✿",

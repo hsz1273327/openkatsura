@@ -556,6 +556,10 @@
   },
   "yuan": {
     "types": {
+      "katsura": {
+        "label": "Default balanced assistant (OpenKatsura)",
+        "avatar": "Katsura.png"
+      },
       "hanako": {
         "label": "Balanced assistant",
         "avatar": "Hanako.png"

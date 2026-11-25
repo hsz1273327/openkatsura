@@ -103,6 +103,6 @@ async function readErrorResponse(res: Response): Promise<{ message: string | nul
 export function yuanFallbackAvatar(yuan?: string): string {
   const t = window.t || ((k: string) => k);
   const types = (t('yuan.types') || {}) as Record<string, { avatar?: string }>;
-  const entry = types[yuan || 'hanako'];
-  return `assets/${entry?.avatar || 'Hanako.png'}`;
+  const entry = types[yuan || 'katsura'];
+  return `assets/${entry?.avatar || 'Katsura.png'}`;
 }
