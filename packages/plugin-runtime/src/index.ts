@@ -479,15 +479,80 @@ export interface HanaProviderMediaCapability {
   [key: string]: unknown;
 }
 
-export interface HanaProviderJudgeCapability {
-  models?: Array<{
-    id: string;
-    name?: string;
-    labels?: string[];
-    defaultThreshold?: number;
-    maxInputChars?: number;
-  }>;
+export interface HanaJudgeModelDefinition {
+  id: string;
+  name?: string;
+  provider?: string;
+  labels?: string[];
+  defaultThreshold?: number;
+  maxInputChars?: number;
+  input?: string[];
+  source?: 'provider' | 'pi_classifier' | 'catalog' | 'plugin' | string;
   [key: string]: unknown;
+}
+
+export interface HanaProviderJudgeCapability {
+  models?: HanaJudgeModelDefinition[];
+  [key: string]: unknown;
+}
+
+export interface HanaJudgeClassifyInput {
+  input: string | { text?: string; prompt?: string; context?: string };
+  model?: string;
+  provider?: string;
+  labels?: string[];
+  threshold?: number;
+  timeoutMs?: number;
+  instructions?: string;
+  [key: string]: unknown;
+}
+
+export interface HanaJudgeClassifyResult {
+  ok: true;
+  label: string;
+  score: number;
+  scores: Record<string, number>;
+  threshold: number;
+  passed: boolean;
+  model: string;
+  provider: string;
+  durationMs: number;
+  raw?: unknown;
+}
+
+export interface HanaJudgeClassifyError {
+  ok: false;
+  code:
+    | 'NO_JUDGE_MODEL'
+    | 'MODEL_NOT_FOUND'
+    | 'INVALID_INPUT'
+    | 'TIMEOUT'
+    | 'PROVIDER_ERROR'
+    | 'PARSE_ERROR'
+    | string;
+  error: string;
+  model?: string;
+  provider?: string;
+  durationMs: number;
+}
+
+export type HanaJudgeClassifyResponse = HanaJudgeClassifyResult | HanaJudgeClassifyError;
+
+export interface HanaJudgeLogEntry {
+  id: string;
+  timestamp: string;
+  status: 'ok' | 'error';
+  model?: string;
+  provider?: string;
+  label?: string;
+  score?: number;
+  threshold?: number;
+  passed?: boolean;
+  durationMs: number;
+  inputLength: number;
+  errorCode?: string;
+  error?: string;
+  callerPluginId?: string;
 }
 
 export interface HanaProviderCapabilities {
@@ -1456,6 +1521,33 @@ export function sampleText(
     ...input,
     ...(pluginIdFromContext(ctx) ? { pluginId: pluginIdFromContext(ctx) } : {}),
   }, options);
+}
+
+export function listJudgeModels(
+  ctx: { bus?: Pick<HanaEventBus, 'request'> | null },
+  filter: { provider?: string } = {},
+  options?: Record<string, unknown>,
+): Promise<{ models: HanaJudgeModelDefinition[] }> {
+  return requestBus(ctx, 'judge:list-models', filter, options);
+}
+
+export function classifyWithJudge(
+  ctx: { pluginId?: string | null; bus?: Pick<HanaEventBus, 'request'> | null },
+  input: HanaJudgeClassifyInput,
+  options?: Record<string, unknown>,
+): Promise<HanaJudgeClassifyResponse> {
+  return requestBus(ctx, 'judge:classify', {
+    ...input,
+    ...(pluginIdFromContext(ctx) ? { pluginId: pluginIdFromContext(ctx) } : {}),
+  }, options);
+}
+
+export function listJudgeLogs(
+  ctx: { bus?: Pick<HanaEventBus, 'request'> | null },
+  filter: { limit?: number } = {},
+  options?: Record<string, unknown>,
+): Promise<{ logs: HanaJudgeLogEntry[] }> {
+  return requestBus(ctx, 'judge:logs', filter, options);
 }
 
 export function listMediaProviders(

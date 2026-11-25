@@ -6,14 +6,20 @@ import {
 import {
   COMPACTION_MODE_EXPERIMENT_ID,
   COMPACTION_MODES,
+  getResolvedIncrementalCompactionEnabled,
   getResolvedInstantSimpleCompactionEnabled,
+  INCREMENTAL_COMPACTION_EXPERIMENT_ID,
   INSTANT_SIMPLE_COMPACTION_EXPERIMENT_ID,
 } from "../../shared/compaction-mode.ts";
 
 export const CACHE_SNAPSHOT_EXPERIMENT_ID = "memory.cache_snapshot_reflection";
 export const DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID = "provider.deepseek_roleplay_reasoning_patch";
 export const PROACTIVE_SUBAGENT_EXPERIMENT_ID = "subagent.proactive_delegation";
-export { COMPACTION_MODE_EXPERIMENT_ID, INSTANT_SIMPLE_COMPACTION_EXPERIMENT_ID };
+export {
+  COMPACTION_MODE_EXPERIMENT_ID,
+  INCREMENTAL_COMPACTION_EXPERIMENT_ID,
+  INSTANT_SIMPLE_COMPACTION_EXPERIMENT_ID,
+};
 
 const RETIRED_EXPERIMENT_VALUES = new Map([
   [CACHE_SNAPSHOT_EXPERIMENT_ID, "off"],
@@ -85,6 +91,37 @@ const DEFINITIONS = [
     sunsetPolicy: {
       removeWhenRetired: false,
       migration: "Keep the one-shot action hidden when disabled; never promote it into session.compaction_mode.",
+    },
+  }),
+  normalizeExperimentDefinition({
+    id: INCREMENTAL_COMPACTION_EXPERIMENT_ID,
+    titleKey: "settings.experiments.incrementalCompaction.title",
+    descriptionKey: "settings.experiments.incrementalCompaction.description",
+    owner: "session",
+    scope: "global",
+    defaultValue: false,
+    valueSchema: {
+      type: "boolean",
+      presentation: {
+        type: "toggle",
+      },
+    },
+    status: "alpha",
+    risk: "medium",
+    restartPolicy: "immediate",
+    targetHome: {
+      tab: "experiments",
+      section: "compaction",
+      whenStable: "Graduate to General / Sessions compaction settings once per-turn local compaction proves stable.",
+    },
+    exitCriteria: [
+      "Disabled by default; turning it off restores exact original behavior with zero state residue.",
+      "When enabled, evaluates context growth at turn end and runs local lossy compaction when above the soft threshold.",
+      "Every evaluation decision (time, reason, token impact) is logged for inspection.",
+    ],
+    sunsetPolicy: {
+      removeWhenRetired: false,
+      migration: "Keep default OFF; turning it off immediately stops post-turn evaluation.",
     },
   }),
   normalizeExperimentDefinition({
@@ -179,6 +216,9 @@ export function getResolvedExperimentValue(preferencesManager, id) {
   const stored = preferencesManager?.getExperimentValue?.(id);
   if (id === INSTANT_SIMPLE_COMPACTION_EXPERIMENT_ID) {
     return getResolvedInstantSimpleCompactionEnabled(preferencesManager);
+  }
+  if (id === INCREMENTAL_COMPACTION_EXPERIMENT_ID) {
+    return getResolvedIncrementalCompactionEnabled(preferencesManager);
   }
   if (stored === undefined) return definition.defaultValue;
   try {

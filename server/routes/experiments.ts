@@ -70,5 +70,17 @@ export function createExperimentsRoute(engine) {
     }
   });
 
+  route.get("/experiments/session/incremental-compaction/logs", (c) => {
+    const limit = Number(c.req.query("limit")) || 50;
+    const logs = engine.incrementalCompactionLogStore?.list?.(limit) || [];
+    return c.json({ logs, count: logs.length });
+  });
+
+  route.get("/sessions/incremental-compaction/logs", (c) => {
+    const limit = Number(c.req.query("limit")) || 50;
+    const logs = engine.incrementalCompactionLogStore?.list?.(limit) || [];
+    return c.json({ logs, count: logs.length });
+  });
+
   return route;
 }

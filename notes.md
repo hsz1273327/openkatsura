@@ -29,3 +29,10 @@
 | `dist-server-bundle/index.js` | 4,766.66 kB | 4,535.72 kB | **-231 kB** |
 | `npm run typecheck` | 0 错误 | 0 错误 | 持平 |
 
+## 阶段六（新能力：Judge 模型能力 + 每轮增量压缩开关）验证记录
+
+- `npm run build:packages` & `node scripts/patch-pi-sdk.cjs`：通过
+- `npm run typecheck`：0 错误
+- `npx vitest run tests/judge-client.test.ts tests/incremental-compaction.test.ts tests/bridge-plugin-registry.test.ts`：3/3 文件、13/13 用例全部通过
+- `npm run build:client && npm run build:server`：通过（`dist-server` 保持 444 外部包 / 5,133 nft 文件）
+

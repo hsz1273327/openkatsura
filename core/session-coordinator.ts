@@ -17,6 +17,8 @@ import {
   createColdUtilitySummaryResult,
   isDirectCompactionInProgress,
 } from "./session-compactor.ts";
+import { evaluateIncrementalCompactionForSession } from "./incremental-compaction.ts";
+import { getResolvedIncrementalCompactionEnabled } from "../shared/compaction-mode.ts";
 import {
   installDynamicCompactionReserve,
   installMidRunCompaction,
@@ -2273,6 +2275,22 @@ export class SessionCoordinator {
         (event as any).agentId ? event : { ...event, agentId: creatingAgentId },
         sessionPath,
       );
+      if (
+        event?.type === "agent_end"
+        && getResolvedIncrementalCompactionEnabled(this._d.getPrefs?.())
+      ) {
+        const aborted = (event as any).aborted === true;
+        void evaluateIncrementalCompactionForSession({
+          session,
+          sessionPath,
+          sessionId: this._sessionIdForPath(sessionPath),
+          preferencesManager: this._d.getPrefs?.(),
+          aborted,
+          logStore: this._d.getIncrementalCompactionLogStore?.() || null,
+        }).catch((err) => {
+          log.warn(`incremental compaction failed for ${sessionPath}: ${err?.message || err}`);
+        });
+      }
     });
 
     // ── Tool snapshot for session-tool-isolation (parallels session-model-isolation) ──

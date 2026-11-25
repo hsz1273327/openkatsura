@@ -45,6 +45,9 @@ import { PluginDevService } from "./plugin-dev-service.ts";
 import { createPluginDevTools } from "./plugin-dev-tools.ts";
 import { DefaultResourceLoader, SessionManager, SettingsManager } from "../lib/pi-sdk/index.ts";
 import { registerBridgeBusHandlers } from "../lib/bridge/bridge-bus-handlers.ts";
+import { JudgeClient } from "./judge-client.ts";
+import { registerJudgeBusHandlers } from "../lib/judge/judge-bus-handlers.ts";
+import { IncrementalCompactionLogStore } from "./incremental-compaction.ts";
 import { compactSessionWithCachePreservationRecoveringRuntime } from "./session-compactor.ts";
 import { resolveRequestReasoningLevelForContext } from "./request-reasoning-level.ts";
 import { getFreshCompactNoopReason } from "../lib/fresh-compact/policy.ts";
@@ -293,6 +296,9 @@ export class HanaEngine {
   declare _media: any;
   declare _mcp: any;
   declare _bridgeBusCleanup: any;
+  declare _judgeClient: JudgeClient;
+  declare _judgeBusCleanup: any;
+  declare _incrementalCompactionLogStore: IncrementalCompactionLogStore;
   declare _models: any;
   declare _notifications: any;
   declare _outboundProxyRuntime: any;
@@ -413,6 +419,16 @@ export class HanaEngine {
     this._prefs = new PreferencesManager({ userDir: this.userDir, agentsDir: this.agentsDir });
     this._inputDrafts = new InputDraftsStore({ hanakoHome: this.hanakoHome });
     this._models = new ModelManager({ hanakoHome });
+    this._judgeClient = new JudgeClient({
+      getProviderRegistry: () => this._models.providerRegistry,
+      getModelRegistry: () => this._models._modelRegistry,
+      resolveModelWithCredentialsFresh: (ref) => this.resolveModelWithCredentialsFresh(ref),
+      getUsageLedger: () => this.usageLedger,
+      hanakoHome: this.hanakoHome,
+    });
+    this._incrementalCompactionLogStore = new IncrementalCompactionLogStore({
+      hanakoHome: this.hanakoHome,
+    });
     this._speechRecognition = new SpeechRecognitionService({
       providerRegistry: this._models.providerRegistry,
       preferences: this._prefs,
@@ -516,6 +532,7 @@ export class HanaEngine {
       switchAgentOnly: (id) => this._agentMgr.switchAgentOnly(id),
       getConfig: () => this.config,
       getPrefs: () => this._prefs,
+      getIncrementalCompactionLogStore: () => this._incrementalCompactionLogStore,
       getAgents: () => this._agentMgr.agents,
       getActivityStore: (id) => this.getActivityStore(id),
       getAgentById: (id) => this._agentMgr.getAgent(id),
@@ -3353,6 +3370,10 @@ export class HanaEngine {
     return this._hubCallbacks?.registerAgentPhoneAbortHandler?.(handler, meta) || (() => {});
   }
 
+  get judgeClient() { return this._judgeClient; }
+
+  get incrementalCompactionLogStore() { return this._incrementalCompactionLogStore; }
+
   setEventBus(bus) {
     for (const fn of this._listeners) bus.subscribe(fn);
     this._listeners.clear();
@@ -3361,6 +3382,10 @@ export class HanaEngine {
     this._bridgeBusCleanup = registerBridgeBusHandlers(bus, {
       getBridgeManager: () => this._hubCallbacks?.hub?.bridgeManager || null,
       getAgents: () => this._agentMgr?.agents || null,
+    });
+    this._judgeBusCleanup?.();
+    this._judgeBusCleanup = registerJudgeBusHandlers(bus, {
+      getJudgeClient: () => this._judgeClient || null,
     });
   }
 

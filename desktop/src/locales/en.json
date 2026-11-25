@@ -1152,6 +1152,10 @@
         "title": "Instant simple compaction",
         "description": "When enabled, the chat input's context-ring menu adds an Instant simple compaction action. It affects only the run you explicitly start and never changes automatic or ordinary compaction behavior."
       },
+      "incrementalCompaction": {
+        "title": "Per-turn incremental compaction",
+        "description": "Off by default. When enabled, automatically checks context size at the end of each completed turn and runs local lossy compaction (no extra LLM call) when above the soft threshold. Turning it off immediately restores original behavior."
+      },
       "deepseekRoleplay": {
         "title": "DeepSeek persona immersion patch",
         "description": "When enabled, new DeepSeek V4 thinking sessions temporarily append a persona-immersion marker to the first outbound user message. It is not displayed, saved, or restored in chat history. Turning it off keeps the old behavior."

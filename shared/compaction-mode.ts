@@ -1,5 +1,6 @@
 export const COMPACTION_MODE_EXPERIMENT_ID = "session.compaction_mode";
 export const INSTANT_SIMPLE_COMPACTION_EXPERIMENT_ID = "session.instant_simple_compaction";
+export const INCREMENTAL_COMPACTION_EXPERIMENT_ID = "session.incremental_compaction";
 export const INSTANT_SIMPLE_COMPACTION_METHOD = "instant_simple";
 export const INSTANT_SIMPLE_COMPACTION_RUNTIME_MODE = "lossy_local";
 
@@ -48,4 +49,10 @@ export function getResolvedInstantSimpleCompactionEnabled(preferencesManager: un
   // appeared as the persisted compaction mode instead of a separate toggle.
   return manager?.getExperimentValue?.(COMPACTION_MODE_EXPERIMENT_ID)
     === INSTANT_SIMPLE_COMPACTION_RUNTIME_MODE;
+}
+
+export function getResolvedIncrementalCompactionEnabled(preferencesManager: unknown): boolean {
+  const manager = preferencesManager as any;
+  const stored = manager?.getExperimentValue?.(INCREMENTAL_COMPACTION_EXPERIMENT_ID);
+  return stored === true;
 }

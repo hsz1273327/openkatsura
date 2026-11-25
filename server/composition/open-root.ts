@@ -20,6 +20,7 @@ import { createSessionsRoute } from "../routes/sessions.ts";
 import { createSessionCollabRoute } from "../routes/session-collab.ts";
 import { createSessionProjectsRoute } from "../routes/session-projects.ts";
 import { createModelsRoute } from "../routes/models.ts";
+import { createJudgeRoute } from "../routes/judge.ts";
 import { createConfigRoute } from "../routes/config.ts";
 import { createUploadRoute } from "../routes/upload.ts";
 import { createProvidersRoute } from "../routes/providers.ts";
@@ -80,6 +81,7 @@ export function registerOpenRoutes(app: Hono, ctx: CompositionContext): void {
   app.route("/api", createSessionCollabRoute(engine));
   app.route("/api", createSessionProjectsRoute(engine));
   app.route("/api", createModelsRoute(engine));
+  app.route("/api", createJudgeRoute(engine));
   app.route("/api", createConfigRoute(engine));
   app.route("/api", createMemoryDreamRoute(engine));
   app.route("/api", createUploadRoute(engine));

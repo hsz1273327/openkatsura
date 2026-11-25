@@ -195,8 +195,10 @@ export function createModelsRoute(engine) {
       const cur = engine.currentModel;
       const activeModel = engine.activeSessionModel;
       const models = engine.availableModels.map(m => serializeModelInfo(m, { current: cur, overrides }));
+      const judgeModels = engine.judgeClient?.listModels?.() || [];
       return c.json({
         models,
+        judgeModels,
         current: cur?.id || null,
         activeModel: activeModel ? { id: activeModel.id, provider: activeModel.provider } : null,
       });

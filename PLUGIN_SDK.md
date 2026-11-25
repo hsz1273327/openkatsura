@@ -465,4 +465,15 @@ Migration rule for older image-generation plugins:
 
 CLI-backed providers must use structured argument bindings. Avoid shell command strings; the host runtime validates the contract and runs local commands through non-shell execution.
 
+## Judge / Classifier Capability (`capabilities.judge`)
+
+Providers and plugins can declare lightweight classification / scoring models alongside `chat` and `media` via `capabilities.judge`:
+
+- Provider declaration: `capabilities.judge.models[]` with `{ id, name?, labels?, defaultThreshold?, maxInputChars?, input? }`.
+- Pi SDK 1.6.0 native `classifier` models (`modelRegistry.getModelsOfType("classifier")`) are discovered automatically.
+- EventBus channels: `judge:list-models`, `judge:classify`, `judge:logs`.
+- `@hana/plugin-runtime` helpers: `listJudgeModels(ctx, filter?)`, `classifyWithJudge(ctx, input)`, `listJudgeLogs(ctx, filter?)`.
+- REST endpoints: `GET /api/judge/models`, `POST /api/judge/classify`, `GET /api/judge/logs` (and `GET /api/models` includes `judgeModels`).
+- When zero judge models are registered, the host runs normally and `classify` fails explicitly with `{ ok: false, code: "NO_JUDGE_MODEL" }`.
+
 See `examples/plugins/sdk-showcase/` for a compact plugin that shows the current recommended shape.
