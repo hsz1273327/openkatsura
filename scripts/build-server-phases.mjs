@@ -121,7 +121,7 @@ export function prepareNodeRuntime({
     verifyNodeRuntimeArchive(cachedArchive, filename, checksums, log);
 
     if (isWin) {
-      execSync(`powershell -command "Expand-Archive -Path '${cachedArchive}' -DestinationPath '${cacheDir}' -Force"`, { stdio: "inherit" });
+      execSync(`tar -xf "${cachedArchive}" -C "${cacheDir}"`, { stdio: "inherit" });
     } else {
       execSync(`tar xzf "${cachedArchive}" -C "${cacheDir}"`, { stdio: "inherit" });
     }
