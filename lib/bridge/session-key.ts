@@ -5,8 +5,8 @@
  * 数据驱动：新增平台只需在 SESSION_PREFIX_MAP 注册前缀。
  */
 
-// sessionKey 前缀 → [platform, chatType]
-export const SESSION_PREFIX_MAP = [
+// 兼容历史会话解析的默认前缀表（卸载插件后旧会话仍可识别）
+const LEGACY_SESSION_PREFIX_MAP: Array<[string, string, "dm" | "group"]> = [
   ["tg_dm_",       "telegram", "dm"],
   ["tg_group_",    "telegram", "group"],
   ["fs_dm_",       "feishu",   "dm"],
@@ -18,15 +18,60 @@ export const SESSION_PREFIX_MAP = [
   ["wx_dm_",       "wechat",   "dm"],
 ];
 
-/** 已知平台列表（从前缀表去重） */
-export const KNOWN_PLATFORMS = [...new Set(SESSION_PREFIX_MAP.map(([, p]) => p))];
+// 运行时由已加载 Bridge 平台插件动态注册的前缀
+const DYNAMIC_SESSION_PREFIXES = new Map<string, Array<[string, string, "dm" | "group"]>>();
+
+export function registerSessionPrefixes(
+  platform: string,
+  prefixes: Array<{ prefix: string; chatType: "dm" | "group" }>,
+) {
+  const id = String(platform || "").trim().toLowerCase();
+  if (!id || !Array.isArray(prefixes)) return;
+  const entries: Array<[string, string, "dm" | "group"]> = [];
+  for (const item of prefixes) {
+    const prefix = typeof item?.prefix === "string" ? item.prefix.trim() : "";
+    const chatType = item?.chatType === "group" ? "group" : "dm";
+    if (prefix) entries.push([prefix, id, chatType]);
+  }
+  DYNAMIC_SESSION_PREFIXES.set(id, entries);
+}
+
+export function unregisterSessionPrefixes(platform: string) {
+  const id = String(platform || "").trim().toLowerCase();
+  if (!id) return;
+  DYNAMIC_SESSION_PREFIXES.delete(id);
+}
+
+export function getActiveSessionPrefixMap(): Array<[string, string, "dm" | "group"]> {
+  const combined: Array<[string, string, "dm" | "group"]> = [];
+  const seen = new Set<string>();
+  for (const list of DYNAMIC_SESSION_PREFIXES.values()) {
+    for (const entry of list) {
+      if (seen.has(entry[0])) continue;
+      seen.add(entry[0]);
+      combined.push(entry);
+    }
+  }
+  for (const entry of LEGACY_SESSION_PREFIX_MAP) {
+    if (seen.has(entry[0])) continue;
+    seen.add(entry[0]);
+    combined.push(entry);
+  }
+  return combined;
+}
+
+// 兼容导出
+export const SESSION_PREFIX_MAP = LEGACY_SESSION_PREFIX_MAP;
+
+/** 已知平台列表（兼容导出；运行时优先从 BridgeProviderRegistry 读取已注册插件） */
+export const KNOWN_PLATFORMS = [...new Set(LEGACY_SESSION_PREFIX_MAP.map(([, p]) => p))];
 
 /** 从 sessionKey 解析平台 + 类型 + chatId + agentId
  *  新格式: `tg_dm_123@hana` → chatId="123", agentId="hana"
  *  旧格式: `tg_dm_123`      → chatId="123", agentId=null
  */
 export function parseSessionKey(sessionKey) {
-  for (const [prefix, platform, chatType] of SESSION_PREFIX_MAP) {
+  for (const [prefix, platform, chatType] of getActiveSessionPrefixMap()) {
     if (sessionKey.startsWith(prefix)) {
       const tail = sessionKey.slice(prefix.length);
       const atIdx = tail.lastIndexOf("@");

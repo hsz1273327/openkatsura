@@ -1,0 +1,8 @@
+{
+  "id": "bridge-qq",
+  "name": "QQ 机器人",
+  "version": "1.0.0",
+  "description": "通过 QQ 开放平台 v2 API 与 WebSocket 长连接接入 QQ 频道与私信。",
+  "trust": "full-access",
+  "activationEvents": ["onStartup"]
+}

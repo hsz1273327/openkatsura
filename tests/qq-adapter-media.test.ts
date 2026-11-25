@@ -39,7 +39,7 @@ vi.mock("../lib/bridge/outbound-http.ts", () => ({
   },
 }));
 
-import { createQQAdapter, deriveQQPrincipal } from "../lib/bridge/qq-adapter.ts";
+import { createQQAdapter, deriveQQPrincipal } from "../plugins/bridge-qq/qq-adapter.ts";
 
 function jsonResponse(body) {
   return {

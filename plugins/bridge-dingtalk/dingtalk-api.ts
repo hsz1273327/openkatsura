@@ -3,7 +3,7 @@ import {
   normalizeDingTalkBridgeCredentials,
   type DingTalkBridgeCredentials,
 } from "./dingtalk-contract.ts";
-import { redactSecretsFromText } from "../secret-fingerprint.ts";
+import { redactSecretsFromText } from "../../lib/secret-fingerprint.ts";
 
 export const DINGTALK_TOKEN_RESPONSE_BODY_TIMEOUT_MS = 10_000;
 export const DINGTALK_TOKEN_RESPONSE_MAX_BYTES = 64 * 1024;

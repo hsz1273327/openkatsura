@@ -6,17 +6,17 @@
  */
 
 import * as lark from "@larksuiteoapi/node-sdk";
-import { debugLog } from "../debug-log.ts";
-import { downloadMedia, detectMime, formatSize, streamToBuffer } from "./media-utils.ts";
-import { createMediaCapabilities } from "./media-capabilities.ts";
-import { createStreamingCapabilities } from "./streaming-capabilities.ts";
+import { debugLog } from "../../lib/debug-log.ts";
+import { downloadMedia, detectMime, formatSize, streamToBuffer } from "../../lib/bridge/media-utils.ts";
+import { createMediaCapabilities } from "../../lib/bridge/media-capabilities.ts";
+import { createStreamingCapabilities } from "../../lib/bridge/streaming-capabilities.ts";
 import {
   createBridgePresentation,
   FEISHU_CARDKIT_STREAM_ELEMENT_ID,
   renderFeishuCardKitCard,
   renderFeishuCardKitSettings,
-} from "./bridge-presentation.ts";
-import { createModuleLogger } from "../debug-log.ts";
+} from "../../lib/bridge/bridge-presentation.ts";
+import { createModuleLogger } from "../../lib/debug-log.ts";
 import {
   renderFeishuOutbound,
   renderFeishuPostMessageContent,

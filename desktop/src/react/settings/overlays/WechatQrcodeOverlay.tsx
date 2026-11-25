@@ -35,7 +35,7 @@ export function WechatQrcodeOverlay() {
     setStatus('loading');
     setError('');
     try {
-      const res = await hanaFetch('/api/bridge/wechat/qrcode', { method: 'POST' });
+      const res = await hanaFetch('/api/bridge/platforms/wechat/action/qrcode', { method: 'POST' });
       const data = await res.json();
       if (data.ok && data.qrcodeUrl) {
         setQrcodeUrl(data.qrcodeUrl);
@@ -61,7 +61,7 @@ export function WechatQrcodeOverlay() {
     (async () => {
       while (!stoppedRef.current) {
         try {
-          const res = await hanaFetch('/api/bridge/wechat/qrcode-status', {
+          const res = await hanaFetch('/api/bridge/platforms/wechat/action/qrcodeStatus', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ qrcodeId: id }),

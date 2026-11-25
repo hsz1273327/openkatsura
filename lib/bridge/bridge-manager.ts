@@ -1,19 +1,16 @@
 /**
  * bridge-manager.js — 外部平台接入管理器
  *
- * 统一管理 Telegram / 飞书等外部消息平台的生命周期。
+ * 统一管理已注册外部消息平台插件的生命周期。
  * 每个平台一个 adapter，共享 engine 的 _executeExternalMessage()。
  */
 
 import fs from "fs";
 import path from "path";
 import { debugLog } from "../debug-log.ts";
-import { createTelegramAdapter } from "./telegram-adapter.ts";
-import { createFeishuAdapter } from "./feishu-adapter.ts";
-import { createDingTalkAdapter } from "./dingtalk-adapter.ts";
-import { normalizeDingTalkBridgeCredentials } from "./dingtalk-contract.ts";
-import { createQQAdapter } from "./qq-adapter.ts";
-import { createWechatAdapter } from "./wechat-adapter.ts";
+import { bridgeProviderRegistry } from "./bridge-provider-registry.ts";
+import { createBridgeOutboundHttp } from "./outbound-http.ts";
+import { webSocketOptionsForUrl } from "../net/outbound-proxy.ts";
 import { downloadMedia, bufferToBase64, detectMime, splitMediaFromOutput, formatSize, setMediaLocalRoots, isExtractableReplyMediaSource } from "./media-utils.ts";
 import { mediaItemKey, normalizeMediaItems } from "./media-item-normalizer.ts";
 import { MediaDeliveryService } from "./media-delivery-service.ts";
@@ -93,7 +90,7 @@ function bridgeSessionKeyFallbackParts(sessionKey) {
   const agentId = atIndex >= 0 && value.slice(atIndex + 1).trim()
     ? value.slice(atIndex + 1).trim()
     : null;
-  const match = head.match(/^(?:wechat|wx|telegram|tg|feishu|fs|dingtalk|dt|qq)_dm_(.+)$/);
+  const match = head.match(/^[a-z0-9_-]+_dm_(.+)$/);
   return {
     chatId: match?.[1] || null,
     agentId,
@@ -112,65 +109,9 @@ function unrefTimer(timer) {
 }
 
 // ── Adapter Registry ─────────────────────────────────────
-// 每个平台注册：create 工厂、凭证提取、owner sessionKey 构造。
-// 新增平台只需在此注册 + 提供 adapter 文件。
-const ADAPTER_REGISTRY = {
-  telegram: {
-    create: (creds, onMessage, hooks, agentId) => createTelegramAdapter({ token: creds.token, agentId, onMessage, onStatus: hooks?.onStatus }),
-    getCredentials: (cfg) => cfg?.enabled && cfg?.token ? { token: cfg.token } : null,
-    ownerSessionKey: (userId, agentId) => `tg_dm_${userId}@${agentId}`,
-  },
-  feishu: {
-    create: (creds, onMessage, hooks, agentId) => createFeishuAdapter({ appId: creds.appId, appSecret: creds.appSecret, region: creds.region, agentId, onMessage, onStatus: hooks?.onStatus }),
-    getCredentials: (cfg) => cfg?.enabled && cfg?.appId && cfg?.appSecret ? { appId: cfg.appId, appSecret: cfg.appSecret, region: cfg.region || "feishu_cn" } : null,
-    ownerSessionKey: (userId, agentId) => `fs_dm_${userId}@${agentId}`,
-    connectsAsync: true,
-  },
-  dingtalk: {
-    create: (creds, onMessage, hooks, agentId) => createDingTalkAdapter({
-      authMode: creds.authMode === "legacy_app" ? creds.authMode : undefined,
-      corpId: creds.corpId,
-      clientId: creds.clientId,
-      clientSecret: creds.clientSecret,
-      robotCode: creds.robotCode,
-      apiBaseUrl: creds.apiBaseUrl,
-      streamOpenUrl: creds.streamOpenUrl,
-      agentId,
-      onMessage,
-      onStatus: hooks?.onStatus,
-    }),
-    getCredentials: (cfg) => cfg?.enabled ? normalizeDingTalkBridgeCredentials(cfg) : null,
-    ownerSessionKey: (userId, agentId) => `dt_dm_${userId}@${agentId}`,
-    connectsAsync: true,
-  },
-  qq: {
-    create: (creds, onMessage, hooks, agentId) => createQQAdapter({
-      appID: creds.appID, appSecret: creds.appSecret, agentId, onMessage,
-      dmGuildMap: creds.dmGuildMap,
-      onDmGuildDiscovered: hooks?.onQqDmGuild,
-      onStatus: hooks?.onStatus,
-    }),
-    getCredentials: (cfg) => {
-      const secret = canonicalCredentialValue(cfg, "appSecret", "token");
-      return cfg?.enabled && cfg?.appID && secret
-        ? { appID: cfg.appID, appSecret: secret, dmGuildMap: cfg.dmGuildMap }
-        : null;
-    },
-    ownerSessionKey: (userId, agentId) => `qq_dm_${userId}@${agentId}`,
-  },
-  wechat: {
-    create: (creds, onMessage, hooks, agentId) => createWechatAdapter({
-      botToken: creds.botToken,
-      hanaHome: creds.hanaHome,
-      agentId,
-      onMessage,
-      onStatus: hooks?.onStatus,
-    }),
-    getCredentials: (cfg) => cfg?.enabled && cfg?.botToken ? { botToken: cfg.botToken, hanaHome: cfg._hanaHome || "" } : null,
-    ownerSessionKey: (userId, agentId) => `wx_dm_${userId}@${agentId}`,
-    connectsAsync: true,
-  },
-};
+// 所有具体平台通过统一插件契约（@hana/plugin-runtime 的 defineBridgeProvider
+// + EventBus `bridge:register-provider`）注册到 bridgeProviderRegistry。
+// 核心代码不硬编码任何具体平台实现。
 
 const MAX_INBOUND_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
@@ -842,23 +783,56 @@ export class BridgeManager {
     return batch;
   }
 
-  /** 遍历所有 agent 的 config.bridge，自动启动已启用的平台 */
+  _createHostServices(platform) {
+    const platformLog = createModuleLogger(platform || "bridge");
+    return {
+      hanakoHome: this.engine?.hanakoHome || "",
+      createOutboundHttp: createBridgeOutboundHttp,
+      webSocketOptionsForUrl,
+      log: {
+        info: (...args: any[]) => (platformLog.log as any)(...args),
+        warn: (...args: any[]) => (platformLog.warn as any)(...args),
+        error: (...args: any[]) => (platformLog.error as any)(...args),
+        debug: (...args: any[]) => (platformLog.log as any)(...args),
+      },
+    };
+  }
+
+  /** 遍历所有 agent 的 config.bridge，自动启动已启用的已注册平台插件 */
   autoStart(agents) {
     if (!agents) return;
+    for (const provider of bridgeProviderRegistry.list()) {
+      this.autoStartPlatform(provider.id, agents);
+    }
+  }
+
+  /** 为单个平台插件自动启动所有已启用该平台的 agent 连接 */
+  autoStartPlatform(platform, agents) {
+    if (!agents) return;
+    const spec = bridgeProviderRegistry.get(platform);
+    if (!spec) return;
+    const host = this._createHostServices(platform);
     for (const [agentId, agent] of agents) {
       const bridgeCfg = agent.config?.bridge;
       if (!bridgeCfg) continue;
-      for (const [platform, spec] of Object.entries(ADAPTER_REGISTRY)) {
-        const cfg = { ...(bridgeCfg[platform] || {}) };
-        if (platform === "wechat") cfg._hanaHome = this.engine.hanakoHome;
-        let creds = null;
-        try {
-          creds = spec.getCredentials(cfg);
-        } catch (err) {
-          this._setPlatformConfigError(platform, agentId, err);
-          continue;
-        }
-        if (creds) this.startPlatform(platform, creds, agentId);
+      const cfg = { ...(bridgeCfg[platform] || {}) };
+      let creds = null;
+      try {
+        creds = spec.getCredentials(cfg, host);
+      } catch (err) {
+        this._setPlatformConfigError(platform, agentId, err);
+        continue;
+      }
+      if (creds) this.startPlatform(platform, creds, agentId);
+    }
+  }
+
+  /** 停止某平台下所有 agent 的活跃连接（插件停用/卸载时调用） */
+  stopAllForPlatform(platform) {
+    const target = String(platform || "").trim().toLowerCase();
+    for (const [, entry] of [...this._platforms.entries()]) {
+      if (entry.platform === target) {
+        this.stopPlatform(entry.platform, entry.agentId);
       }
     }
   }
@@ -870,12 +844,12 @@ export class BridgeManager {
    * @param {string} agentId - 绑定的 agent ID
    */
   startPlatformFromConfig(platform, cfg, agentId) {
-    const spec = ADAPTER_REGISTRY[platform];
+    const spec = bridgeProviderRegistry.get(platform);
     if (!spec) return;
-    if (platform === "wechat") cfg._hanaHome = this.engine.hanakoHome;
+    const host = this._createHostServices(platform);
     let creds = null;
     try {
-      creds = spec.getCredentials(cfg);
+      creds = spec.getCredentials({ ...(cfg || {}) }, host);
     } catch (err) {
       this._setPlatformConfigError(platform, agentId, err);
       return;
@@ -907,21 +881,29 @@ export class BridgeManager {
     const key = this._getPlatformKey(platform, agentId);
     this.stopPlatform(platform, agentId);
 
-    const spec = ADAPTER_REGISTRY[platform];
-    if (!spec) throw new Error(`Unknown platform: ${platform}`);
+    const spec = bridgeProviderRegistry.get(platform);
+    if (!spec) throw new Error(`Unknown or uninstalled bridge platform plugin: ${platform}`);
 
     try {
+      const host = this._createHostServices(platform);
       const onMessage = (msg) => this._handleMessage(platform, msg);
+      const updatePlatformConfig = (patch) => this._persistPlatformConfigPatch(platform, patch, agentId);
       const hooks = {
         onEvent: (evt) => this._hub.eventBus.emit(evt, null),
-        onQqDmGuild: (userId, guildId) => this._persistQqDmGuild(userId, guildId, agentId),
+        updatePlatformConfig,
+        onQqDmGuild: (userId, guildId) => {
+          const agent = agentId ? this.engine.getAgent(agentId) : null;
+          const existing = agent?.config?.bridge?.[platform]?.dmGuildMap || {};
+          if (existing[userId] === guildId) return;
+          updatePlatformConfig({ dmGuildMap: { ...existing, [userId]: guildId } });
+        },
         onStatus: (status, error) => {
           const entry = this._platforms.get(key);
           if (entry) { entry.status = status; entry.error = error || null; }
           this._emitStatus(platform, status, error, agentId);
         },
       };
-      const adapter = spec.create(credentials, onMessage, hooks, agentId);
+      const adapter = spec.createAdapter(credentials, onMessage, hooks, agentId, host);
 
       // 异步握手的平台先进入 connecting，直到 adapter 明确上报 connected/error。
       const initialStatus = spec.connectsAsync ? "connecting" : "connected";
@@ -939,17 +921,15 @@ export class BridgeManager {
     }
   }
 
-  /** 持久化 QQ userId→guildId 映射到 agent config */
-  _persistQqDmGuild(userId, guildId, agentId) {
+  /** 通用平台配置局部持久化（供插件在运行期回写状态，如 dmGuildMap 等） */
+  _persistPlatformConfigPatch(platform, patch, agentId) {
     try {
       const agent = agentId ? this.engine.getAgent(agentId) : null;
-      if (!agent) return;
-      const existing = agent.config?.bridge?.qq?.dmGuildMap || {};
-      if (existing[userId] === guildId) return;
-      agent.updateConfig({ bridge: { qq: { dmGuildMap: { ...existing, [userId]: guildId } } } });
+      if (!agent || !patch || typeof patch !== "object") return;
+      agent.updateConfig({ bridge: { [platform]: patch } });
     } catch (err) {
-      log.error(`persist QQ dmGuildMap failed: ${err.message}`);
-      errorBus.report(new AppError('BRIDGE_SEND_FAILED', { cause: err, context: { platform: 'qq', operation: 'flush dmGuildMap' } }));
+      log.error(`persist ${platform} config patch failed: ${err.message}`);
+      errorBus.report(new AppError('BRIDGE_SEND_FAILED', { cause: err, context: { platform, operation: 'persistPlatformConfigPatch' } }));
     }
   }
 
@@ -2877,7 +2857,7 @@ export class BridgeManager {
         continue;
       }
 
-      const spec = ADAPTER_REGISTRY[platform];
+      const spec = bridgeProviderRegistry.get(platform);
       try {
         await entry.adapter.sendReply(chatId, cleaned);
         debugLog()?.log("bridge", `→ ${platform} proactive to owner (${cleaned.length} chars)`);

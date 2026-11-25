@@ -11,8 +11,8 @@ vi.mock("../lib/debug-log.js", () => ({
 import {
   decodeIlinkMediaAesKey,
   encodeIlinkMediaAesKey,
-} from "../lib/bridge/wechat-ilink-media-crypto.ts";
-import { createWechatAdapter } from "../lib/bridge/wechat-adapter.ts";
+} from "../plugins/bridge-wechat/wechat-ilink-media-crypto.ts";
+import { createWechatAdapter } from "../plugins/bridge-wechat/wechat-adapter.ts";
 
 function jsonResponse(body) {
   return {

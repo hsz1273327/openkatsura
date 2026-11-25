@@ -54,7 +54,7 @@ vi.mock("../lib/debug-log.js", () => ({
   createModuleLogger: () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
-import { createTelegramAdapter } from "../lib/bridge/telegram-adapter.ts";
+import { createTelegramAdapter } from "../plugins/bridge-telegram/telegram-adapter.ts";
 
 describe("createTelegramAdapter media delivery", () => {
   beforeEach(() => {

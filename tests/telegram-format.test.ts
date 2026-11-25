@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatTelegramHtml,
   formatTelegramMessageChunks,
-} from "../lib/bridge/telegram-format.ts";
+} from "../plugins/bridge-telegram/telegram-format.ts";
 
 describe("telegram Markdown formatting", () => {
   it("renders Markdown through Telegram's supported HTML subset", () => {

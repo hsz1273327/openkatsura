@@ -11,11 +11,11 @@
  */
 
 import WebSocket from "ws";
-import { createModuleLogger, debugLog } from "../debug-log.ts";
-import { webSocketOptionsForUrl } from "../net/outbound-proxy.ts";
-import { formatSecretFingerprintComparison, redactSecretsFromText } from "../secret-fingerprint.ts";
-import { createBridgeOutboundHttp } from "./outbound-http.ts";
-import { createStreamingCapabilities } from "./streaming-capabilities.ts";
+import { createModuleLogger, debugLog } from "../../lib/debug-log.ts";
+import { webSocketOptionsForUrl } from "../../lib/net/outbound-proxy.ts";
+import { formatSecretFingerprintComparison, redactSecretsFromText } from "../../lib/secret-fingerprint.ts";
+import { createBridgeOutboundHttp } from "../../lib/bridge/outbound-http.ts";
+import { createStreamingCapabilities } from "../../lib/bridge/streaming-capabilities.ts";
 import {
   DINGTALK_BOT_CALLBACK_TOPIC,
   DINGTALK_DM_SEND_PATH,

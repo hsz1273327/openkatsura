@@ -44,6 +44,7 @@ import { EnvChangeLedger } from "./env-change-ledger.ts";
 import { PluginDevService } from "./plugin-dev-service.ts";
 import { createPluginDevTools } from "./plugin-dev-tools.ts";
 import { DefaultResourceLoader, SessionManager, SettingsManager } from "../lib/pi-sdk/index.ts";
+import { registerBridgeBusHandlers } from "../lib/bridge/bridge-bus-handlers.ts";
 import { compactSessionWithCachePreservationRecoveringRuntime } from "./session-compactor.ts";
 import { resolveRequestReasoningLevelForContext } from "./request-reasoning-level.ts";
 import { getFreshCompactNoopReason } from "../lib/fresh-compact/policy.ts";
@@ -291,6 +292,7 @@ export class HanaEngine {
   declare _loopBridgeHooks: any;
   declare _media: any;
   declare _mcp: any;
+  declare _bridgeBusCleanup: any;
   declare _models: any;
   declare _notifications: any;
   declare _outboundProxyRuntime: any;
@@ -3355,6 +3357,11 @@ export class HanaEngine {
     for (const fn of this._listeners) bus.subscribe(fn);
     this._listeners.clear();
     this._eventBus = bus;
+    this._bridgeBusCleanup?.();
+    this._bridgeBusCleanup = registerBridgeBusHandlers(bus, {
+      getBridgeManager: () => this._hubCallbacks?.hub?.bridgeManager || null,
+      getAgents: () => this._agentMgr?.agents || null,
+    });
   }
 
   getEventBus() {

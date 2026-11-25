@@ -508,8 +508,8 @@ describe("server startup diagnostics contract", () => {
     expect(serverSource).toMatch(/setImmediate\(\(\) => \{\s*void startBridgeManager\(\{ autoStart: true \}\);\s*\}\);/s);
     expect(serverSource.slice(bridgeDeferIndex, startupTryEndIndex)).not.toMatch(/\bawait\b/);
 
-    expect(bridgeRouteSource).not.toContain('import { getWechatQrcode, pollWechatQrcodeStatus } from "../../lib/bridge/wechat-login.ts";');
-    expect(bridgeRouteSource).toContain('await import("../../lib/bridge/wechat-login.ts")');
+    expect(bridgeRouteSource).not.toContain('import { getWechatQrcode, pollWechatQrcodeStatus } from "../../plugins/bridge-wechat/wechat-login.ts";');
+    expect(bridgeRouteSource).toContain('await import("../../plugins/bridge-wechat/wechat-login.ts")');
     expect(bridgeRouteSource).toContain("resolveBridgeManager");
   });
 

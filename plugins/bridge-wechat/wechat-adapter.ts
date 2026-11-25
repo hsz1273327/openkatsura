@@ -9,15 +9,15 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteSync } from "../../shared/safe-fs.ts";
-import { debugLog } from "../debug-log.ts";
-import { createMediaCapabilities } from "./media-capabilities.ts";
-import { createReceiptCapabilities } from "./receipt-capabilities.ts";
+import { debugLog } from "../../lib/debug-log.ts";
+import { createMediaCapabilities } from "../../lib/bridge/media-capabilities.ts";
+import { createReceiptCapabilities } from "../../lib/bridge/receipt-capabilities.ts";
 import {
   createIlinkMediaAesKey,
   decodeIlinkMediaAesKey,
   encodeIlinkMediaAesKey,
 } from "./wechat-ilink-media-crypto.ts";
-import { createModuleLogger } from "../debug-log.ts";
+import { createModuleLogger } from "../../lib/debug-log.ts";
 
 const log = createModuleLogger("wechat");
 

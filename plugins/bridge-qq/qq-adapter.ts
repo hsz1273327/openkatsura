@@ -13,12 +13,12 @@
  */
 
 import WebSocket from "ws";
-import { debugLog } from "../debug-log.ts";
-import { webSocketOptionsForUrl } from "../net/outbound-proxy.ts";
-import { createMediaCapabilities } from "./media-capabilities.ts";
-import { createBridgeOutboundHttp } from "./outbound-http.ts";
+import { debugLog } from "../../lib/debug-log.ts";
+import { webSocketOptionsForUrl } from "../../lib/net/outbound-proxy.ts";
+import { createMediaCapabilities } from "../../lib/bridge/media-capabilities.ts";
+import { createBridgeOutboundHttp } from "../../lib/bridge/outbound-http.ts";
 import { QQApiError, QQ_FILE_TYPE, QQ_UPLOAD_SIZE_LIMITS, uploadQQLocalFile } from "./qq-local-upload.ts";
-import { createModuleLogger } from "../debug-log.ts";
+import { createModuleLogger } from "../../lib/debug-log.ts";
 
 const log = createModuleLogger("qq");
 

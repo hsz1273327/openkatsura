@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { createMediaCapabilities } from "../lib/bridge/media-capabilities.ts";
-import { TELEGRAM_MEDIA_CAPABILITIES } from "../lib/bridge/telegram-adapter.ts";
-import { FEISHU_MEDIA_CAPABILITIES } from "../lib/bridge/feishu-adapter.ts";
-import { QQ_MEDIA_CAPABILITIES } from "../lib/bridge/qq-adapter.ts";
-import { WECHAT_ILINK_MEDIA_CAPABILITIES } from "../lib/bridge/wechat-adapter.ts";
+import { TELEGRAM_MEDIA_CAPABILITIES } from "../plugins/bridge-telegram/telegram-adapter.ts";
+import { FEISHU_MEDIA_CAPABILITIES } from "../plugins/bridge-feishu/feishu-adapter.ts";
+import { QQ_MEDIA_CAPABILITIES } from "../plugins/bridge-qq/qq-adapter.ts";
+import { WECHAT_ILINK_MEDIA_CAPABILITIES } from "../plugins/bridge-wechat/wechat-adapter.ts";
 
 describe("bridge media capabilities", () => {
   it("uses public source locators for built-in capability declarations", () => {

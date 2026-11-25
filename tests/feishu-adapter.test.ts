@@ -105,7 +105,7 @@ vi.mock("../lib/debug-log.js", () => ({
   createModuleLogger: () => moduleLoggerMock,
 }));
 
-import { createFeishuAdapter } from "../lib/bridge/feishu-adapter.ts";
+import { createFeishuAdapter } from "../plugins/bridge-feishu/feishu-adapter.ts";
 
 function markdownPostContent(text) {
   return JSON.stringify({

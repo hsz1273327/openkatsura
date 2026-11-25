@@ -49,7 +49,7 @@ import { SESSION_PREFIX_MAP } from "../lib/bridge/session-key.ts";
 import {
   DINGTALK_LEGACY_AUTH_MODE,
   canonicalizeDingTalkBridgeConfig,
-} from "../lib/bridge/dingtalk-contract.ts";
+} from "../plugins/bridge-dingtalk/dingtalk-contract.ts";
 import { migrateLegacyApiKeyAuthToProviders } from "./provider-auth-migration.ts";
 import { createModuleLogger } from "../lib/debug-log.ts";
 import { patchAutomationJobForMigration } from "../lib/desk/automation-normalizer.ts";

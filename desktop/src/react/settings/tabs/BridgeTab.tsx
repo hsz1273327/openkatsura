@@ -366,11 +366,30 @@ export function BridgeTab() {
         </span>
       </div>
 
-      {BRIDGE_SETTINGS_PLATFORMS.map((descriptor) => (
-        <React.Fragment key={descriptor.id}>
-          {platformSections[descriptor.id]}
-        </React.Fragment>
-      ))}
+      {(() => {
+        const registeredPlatforms = Array.isArray((b.status as any)?.platforms)
+          ? new Set<string>((b.status as any).platforms.map((p: any) => p.id))
+          : null;
+        const visibleDescriptors = registeredPlatforms
+          ? BRIDGE_SETTINGS_PLATFORMS.filter((d) => registeredPlatforms.has(d.id))
+          : BRIDGE_SETTINGS_PLATFORMS;
+        if (registeredPlatforms && visibleDescriptors.length === 0) {
+          return (
+            <SettingsSection title="社交平台插件">
+              <div className={styles['settings-section-inset']}>
+                <div className={styles['settings-section-hint']}>
+                  当前未启用任何社交平台插件。请前往「设置 → 插件」启用所需平台（例如 QQ 机器人）。
+                </div>
+              </div>
+            </SettingsSection>
+          );
+        }
+        return visibleDescriptors.map((descriptor) => (
+          <React.Fragment key={descriptor.id}>
+            {platformSections[descriptor.id]}
+          </React.Fragment>
+        ));
+      })()}
     </div>
   );
 }

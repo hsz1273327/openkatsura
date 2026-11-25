@@ -479,9 +479,21 @@ export interface HanaProviderMediaCapability {
   [key: string]: unknown;
 }
 
+export interface HanaProviderJudgeCapability {
+  models?: Array<{
+    id: string;
+    name?: string;
+    labels?: string[];
+    defaultThreshold?: number;
+    maxInputChars?: number;
+  }>;
+  [key: string]: unknown;
+}
+
 export interface HanaProviderCapabilities {
   chat?: HanaProviderChatCapability;
   media?: Partial<Record<HanaMediaCapabilityName, HanaProviderMediaCapability>>;
+  judge?: HanaProviderJudgeCapability;
   [key: string]: unknown;
 }
 
@@ -1083,6 +1095,128 @@ export function defineCommand<Context = HanaCommandContext>(
   definition: HanaCommandDefinition<Context>,
 ): HanaCommandDefinition<Context> {
   return { ...definition };
+}
+
+export type HanaBridgeConnectionMode =
+  | 'websocket'
+  | 'long_polling'
+  | 'long_connection'
+  | 'webhook';
+
+export interface HanaBridgeConfigFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface HanaBridgeConfigField {
+  key: string;
+  label: string;
+  type: 'string' | 'secret' | 'boolean' | 'select';
+  required?: boolean;
+  placeholder?: string;
+  description?: string;
+  default?: string | boolean;
+  options?: HanaBridgeConfigFieldOption[];
+  /** Legacy config key aliases accepted when reading or migrating config. */
+  legacyKeys?: string[];
+}
+
+export interface HanaBridgeSessionPrefix {
+  prefix: string;
+  chatType: 'dm' | 'group';
+}
+
+export interface HanaBridgeAdapterHooks {
+  onEvent?: (event: unknown) => void;
+  onStatus?: (status: 'connecting' | 'connected' | 'disconnected' | 'error', error?: string | null) => void;
+  /** Generic persistence helper for platform-scoped agent config updates. */
+  updatePlatformConfig?: (patch: Record<string, unknown>) => void;
+  /** Legacy hook alias retained for compatibility with existing QQ adapter tests. */
+  onQqDmGuild?: (userId: string, guildId: string) => void;
+}
+
+export interface HanaBridgeHostServices {
+  hanakoHome: string;
+  createOutboundHttp: (opts?: Record<string, unknown>) => unknown;
+  webSocketOptionsForUrl: (url: string) => Record<string, unknown>;
+  log: HanaPluginLogger;
+}
+
+export interface HanaBridgeAdapter {
+  stop?: () => void | Promise<void>;
+  disconnect?: () => void | Promise<void>;
+  sendText?: (chatId: string, text: string, context?: Record<string, unknown>) => Promise<unknown>;
+  sendMessage?: (chatId: string, text: string, context?: Record<string, unknown>) => Promise<unknown>;
+  sendMedia?: (chatId: string, media: Record<string, unknown>, context?: Record<string, unknown>) => Promise<unknown>;
+  downloadImage?: (ref: string, messageId?: string) => Promise<Buffer>;
+  editMessage?: (chatId: string, messageId: string, text: string, context?: Record<string, unknown>) => Promise<unknown>;
+  sendTyping?: (chatId: string, context?: Record<string, unknown>) => Promise<unknown>;
+  mediaCapabilities?: Record<string, unknown>;
+  streamingCapabilities?: Record<string, unknown>;
+  receiptCapabilities?: Record<string, unknown>;
+  interactionCapabilities?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface HanaBridgeTestResult {
+  ok: boolean;
+  message?: string;
+  botName?: string;
+  details?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface HanaBridgeProviderDefinition {
+  /** Unique platform id, e.g. "qq", "telegram", "feishu", "wechat", "dingtalk". */
+  id: string;
+  /** Human-readable display name shown in Bridge settings. */
+  displayName: string;
+  /** Optional short description for the settings card. */
+  description?: string;
+  /** Transport mode used by this platform. */
+  connectionMode: HanaBridgeConnectionMode;
+  /** Whether adapter startup completes asynchronously (initial status = "connecting"). */
+  connectsAsync?: boolean;
+  /** Session key prefixes owned by this platform, e.g. [{ prefix: "qq_dm_", chatType: "dm" }]. */
+  sessionPrefixes: HanaBridgeSessionPrefix[];
+  /** Declarative configuration & credential fields rendered by Settings UI and protected by secret custody. */
+  configSchema: HanaBridgeConfigField[];
+  /** Extract runtime credentials from persisted platform config, or return null when disabled/incomplete. */
+  getCredentials: (
+    cfg: Record<string, unknown>,
+    host?: Partial<HanaBridgeHostServices>,
+  ) => Record<string, unknown> | null;
+  /** Construct the canonical owner DM session key for a userId and agentId. */
+  ownerSessionKey: (userId: string, agentId: string) => string;
+  /** Instantiate and start a platform adapter for one agent binding. */
+  createAdapter: (
+    credentials: Record<string, unknown>,
+    onMessage: (msg: Record<string, unknown>) => void | Promise<void>,
+    hooks: HanaBridgeAdapterHooks,
+    agentId: string | null,
+    host?: Partial<HanaBridgeHostServices>,
+  ) => HanaBridgeAdapter;
+  /** Optional config normalization/validation hook invoked before saving via POST /bridge/config. */
+  normalizeConfig?: (
+    incoming: Record<string, unknown>,
+    existing?: Record<string, unknown>,
+  ) => Record<string, unknown>;
+  /** Optional connectivity test invoked by POST /bridge/test. */
+  testConnection?: (
+    config: Record<string, unknown>,
+    host: HanaBridgeHostServices,
+  ) => Promise<HanaBridgeTestResult>;
+  /** Optional extra metadata merged into GET /bridge/status for this platform. */
+  extractStatusMeta?: (cfg: Record<string, unknown>) => Record<string, unknown>;
+  /** Optional platform-specific actions invoked via POST /bridge/platforms/:platform/action/:action. */
+  actions?: Record<
+    string,
+    (payload: Record<string, unknown>, host: HanaBridgeHostServices) => Promise<unknown>
+  >;
+}
+
+export function defineBridgeProvider<T extends HanaBridgeProviderDefinition>(definition: T): T {
+  return definition;
 }
 
 export function defineProvider<T extends HanaProviderDefinition>(definition: T): T {

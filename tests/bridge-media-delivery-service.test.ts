@@ -19,10 +19,10 @@ vi.mock("../lib/debug-log.js", () => ({
 
 import { MediaDeliveryService } from "../lib/bridge/media-delivery-service.ts";
 import { setMediaLocalRoots } from "../lib/bridge/media-utils.ts";
-import { TELEGRAM_MEDIA_CAPABILITIES } from "../lib/bridge/telegram-adapter.ts";
-import { FEISHU_MEDIA_CAPABILITIES } from "../lib/bridge/feishu-adapter.ts";
-import { QQ_MEDIA_CAPABILITIES } from "../lib/bridge/qq-adapter.ts";
-import { WECHAT_ILINK_MEDIA_CAPABILITIES } from "../lib/bridge/wechat-adapter.ts";
+import { TELEGRAM_MEDIA_CAPABILITIES } from "../plugins/bridge-telegram/telegram-adapter.ts";
+import { FEISHU_MEDIA_CAPABILITIES } from "../plugins/bridge-feishu/feishu-adapter.ts";
+import { QQ_MEDIA_CAPABILITIES } from "../plugins/bridge-qq/qq-adapter.ts";
+import { WECHAT_ILINK_MEDIA_CAPABILITIES } from "../plugins/bridge-wechat/wechat-adapter.ts";
 
 describe("MediaDeliveryService", () => {
   let tmpDir = null;
