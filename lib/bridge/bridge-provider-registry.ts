@@ -6,14 +6,39 @@
  * `bridge:register-provider`）注册到此表，核心代码不硬编码任何具体平台实现。
  */
 
-import type {
-  HanaBridgeConfigField,
-  HanaBridgeProviderDefinition,
-} from "../../packages/plugin-runtime/src/index.ts";
 import {
   registerSessionPrefixes,
   unregisterSessionPrefixes,
 } from "./session-key.ts";
+
+export interface HanaBridgeConfigField {
+  key: string;
+  label: string;
+  type: "text" | "secret" | "select" | "boolean" | string;
+  required?: boolean;
+  placeholder?: string;
+  default?: unknown;
+  options?: Array<{ value: string; label: string }>;
+  [key: string]: unknown;
+}
+
+export interface HanaBridgeProviderDefinition {
+  id: string;
+  displayName?: string;
+  description?: string;
+  icon?: string;
+  configSchema?: HanaBridgeConfigField[];
+  sessionPrefixes?: Array<{ prefix: string; chatType: "dm" | "group" }>;
+  secretFields?: string[];
+  createAdapter: (...args: any[]) => any;
+  getCredentials: (...args: any[]) => any;
+  ownerSessionKey: (ownerId: string, agentId: string) => string;
+  normalizeConfig?: (credentials: Record<string, unknown>, existing?: Record<string, unknown>) => Record<string, unknown>;
+  extractStatusMeta?: (config: Record<string, unknown>) => Record<string, unknown>;
+  testCredentials?: (credentials: Record<string, unknown>, host: any) => Promise<Record<string, unknown>>;
+  handleAction?: (action: string, payload: Record<string, unknown>, host: any) => Promise<Record<string, unknown>>;
+  [key: string]: unknown;
+}
 
 export interface BridgeProviderRecord {
   provider: HanaBridgeProviderDefinition;
