@@ -1884,7 +1884,7 @@ describe("BridgeSessionManager teardown", () => {
     expect(recorded).toBe(true);
     expect(sessionManagerCreateMock).toHaveBeenCalledWith(
       rootCwd,
-      path.join(agent.sessionDir, "bridge", "owner"),
+      agent.sessionDir,
     );
     expect(deps.ensureSessionRefForPath).toHaveBeenCalledWith(
       sessionPath,

@@ -65,6 +65,37 @@ import { buildWorkspaceInstructionPrompt } from "./workspace-instruction-files.t
 import { agentPersonaFilePaths } from "./persona-source.ts";
 
 const log = createModuleLogger("bridge-session");
+
+/**
+ * Resolve a Bridge binding's `file` reference to an absolute JSONL path.
+ * - Unified model: standard sessions live directly under `agentSessionDir`
+ *   (e.g. `2026-11-27_abc.jsonl`).
+ * - Legacy fallback: pre-unification files under `agentSessionDir/bridge/`
+ *   (e.g. `owner/xxx.jsonl` or `guests/xxx.jsonl`).
+ * Rejects any path-traversal attempt outside `agentSessionDir`.
+ */
+export function resolveBridgeSessionFilePath(agentSessionDir: string, file: string): string | null {
+  if (!agentSessionDir || !file || typeof file !== "string") return null;
+  const sessionRoot = path.resolve(agentSessionDir);
+  const bridgeRoot = path.resolve(agentSessionDir, "bridge");
+  const normalized = file.replace(/\\/g, "/");
+  const isLegacySubpath = normalized.startsWith("owner/") || normalized.startsWith("guests/");
+
+  const primary = isLegacySubpath
+    ? path.resolve(bridgeRoot, file)
+    : path.resolve(sessionRoot, file);
+  if (!primary.startsWith(sessionRoot + path.sep)) return null;
+  if (fs.existsSync(primary)) return primary;
+
+  // Fallback check: legacy bare filename stored inside `bridge/`
+  if (!isLegacySubpath) {
+    const legacyFallback = path.resolve(bridgeRoot, file);
+    if (legacyFallback.startsWith(bridgeRoot + path.sep) && fs.existsSync(legacyFallback)) {
+      return legacyFallback;
+    }
+  }
+  return primary;
+}
 const BRIDGE_OWNER_DENIED_TOOL_NAMES = Object.freeze([
   "computer",
   "browser",
@@ -622,14 +653,13 @@ export class BridgeSessionManager {
 
     for (const agent of this._listAgentsForReconcile()) {
       const index = this.readIndex(agent);
-      const bridgeDir = path.join(agent.sessionDir, "bridge");
       let cleaned = 0;
 
       for (const [sessionKey, raw] of Object.entries(index)) {
         const entry: any = typeof raw === "string" ? { file: raw } : raw;
         if (!entry.file) continue;
-        const fp = path.join(bridgeDir, entry.file);
-        if (!fs.existsSync(fp)) {
+        const fp = resolveBridgeSessionFilePath(agent.sessionDir, entry.file);
+        if (!fp || !fs.existsSync(fp)) {
           // 保留元数据（name/avatarUrl/userId），只删 file 引用
           delete entry.file;
           index[sessionKey] = entry;
@@ -672,7 +702,8 @@ export class BridgeSessionManager {
     if (!raw) return null;
     const file = typeof raw === "string" ? raw : raw.file;
     if (!file) return null;
-    const sessionPath = path.join(agent.sessionDir, "bridge", file);
+    const sessionPath = resolveBridgeSessionFilePath(agent.sessionDir, file);
+    if (!sessionPath) return null;
     return this._deps.getSessionIdForPath?.(sessionPath) ?? null;
   }
 
@@ -684,7 +715,57 @@ export class BridgeSessionManager {
     if (!entry) return null;
     const file = typeof entry === "string" ? entry : entry.file;
     if (!file) return null;
-    return path.join(agent.sessionDir, "bridge", file);
+    return resolveBridgeSessionFilePath(agent.sessionDir, file);
+  }
+
+  /**
+   * Switch a Bridge channel's active session pointer to any existing standard
+   * session owned by the same agent (including desktop / CLI / TUI sessions).
+   * Rejects path escapes, missing files, or switching while streaming.
+   */
+  switchSessionForSessionKey({ sessionKey, sessionPath, agentId, meta = null }: { sessionKey: string; sessionPath: string; agentId: string; meta?: Record<string, any> | null }) {
+    if (!sessionKey || typeof sessionKey !== "string") {
+      throw new Error("bridge switch: sessionKey is required");
+    }
+    if (!sessionPath || typeof sessionPath !== "string") {
+      throw new Error("bridge switch: sessionPath is required");
+    }
+    const agent = this._resolveAgent({ agentId }, "switchSessionForSessionKey");
+    if (this.isSessionStreaming(sessionKey)) {
+      throw new Error("bridge switch: session is currently streaming; wait for the reply to finish");
+    }
+
+    const sessionRoot = path.resolve(agent.sessionDir);
+    const resolvedTarget = path.isAbsolute(sessionPath)
+      ? path.resolve(sessionPath)
+      : path.resolve(sessionRoot, sessionPath);
+    if (!resolvedTarget.startsWith(sessionRoot + path.sep) || !resolvedTarget.endsWith(".jsonl")) {
+      throw new Error("bridge switch: target session must be a .jsonl file inside the agent's session directory");
+    }
+    if (!fs.existsSync(resolvedTarget)) {
+      throw new Error(`bridge switch: target session file not found: ${resolvedTarget}`);
+    }
+
+    const active = this._activeSessions.get(sessionKey);
+    if (active) {
+      try { active.dispose?.(); } catch {}
+      this._activeSessions.delete(sessionKey);
+      this._activeSessionRoles.delete(sessionKey);
+    }
+
+    const bridgeDir = path.join(agent.sessionDir, "bridge");
+    const index = this.readIndex(agent);
+    const previousRaw = index[sessionKey];
+    const { changed, file } = this._syncIndexEntry(index, sessionKey, previousRaw, {
+      bridgeDir,
+      sessionPath: resolvedTarget,
+      meta,
+      resetRoleBoundState: true,
+    });
+    if (changed) {
+      this.writeIndex(index, agent);
+    }
+    return { ok: true, sessionKey, sessionPath: resolvedTarget, file };
   }
 
   /**
@@ -716,14 +797,14 @@ export class BridgeSessionManager {
     const raw = index[sessionKey];
     const existingFile = typeof raw === "string" ? raw : raw?.file || null;
     const bridgeDir = path.join(agent.sessionDir, "bridge");
-    const sessionDir = path.join(bridgeDir, "owner");
+    const sessionDir = agent.sessionDir;
     fs.mkdirSync(sessionDir, { recursive: true });
 
     let mgr = null;
     let sessionPath = null;
     if (existingFile) {
-      sessionPath = path.join(bridgeDir, existingFile);
-      if (fs.existsSync(sessionPath)) {
+      sessionPath = resolveBridgeSessionFilePath(agent.sessionDir, existingFile);
+      if (sessionPath && fs.existsSync(sessionPath)) {
         mgr = SessionManager.open(sessionPath, path.dirname(sessionPath));
       } else if (!createIfMissing) {
         log.warn(`${label}: session 文件不存在: ${sessionPath}`);
@@ -783,11 +864,18 @@ export class BridgeSessionManager {
   }
 
   _relativeBridgeFile(bridgeDir, sessionPath) {
-    const relative = path.relative(bridgeDir, sessionPath);
-    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-      throw new Error(`bridge session path escapes bridge dir: ${sessionPath}`);
+    // Support both unified sessions directly inside `agent.sessionDir` (parent of `bridgeDir`)
+    // and legacy sessions inside `agent.sessionDir/bridge/{owner,guests}/`.
+    const sessionRoot = path.dirname(bridgeDir);
+    const relFromBridge = path.relative(bridgeDir, sessionPath);
+    if (relFromBridge && !relFromBridge.startsWith("..") && !path.isAbsolute(relFromBridge)) {
+      return relFromBridge.split(path.sep).join("/");
     }
-    return relative.split(path.sep).join("/");
+    const relFromRoot = path.relative(sessionRoot, sessionPath);
+    if (!relFromRoot || relFromRoot.startsWith("..") || path.isAbsolute(relFromRoot)) {
+      throw new Error(`bridge session path escapes session dir: ${sessionPath}`);
+    }
+    return relFromRoot.split(path.sep).join("/");
   }
 
   _syncIndexEntry(index, sessionKey, previousRaw, { bridgeDir, sessionPath, meta, resetRoleBoundState = false }) {
@@ -901,9 +989,9 @@ export class BridgeSessionManager {
     if (!existingFile) {
       throw new Error(`bridge ${operation}: session "${sessionKey}" not found or has no history`);
     }
-    const sessionFilePath = path.join(bridgeDir, existingFile);
-    if (!fs.existsSync(sessionFilePath)) {
-      throw new Error(`bridge ${operation}: session file missing on disk: ${sessionFilePath}`);
+    const sessionFilePath = resolveBridgeSessionFilePath(agent.sessionDir, existingFile);
+    if (!sessionFilePath || !fs.existsSync(sessionFilePath)) {
+      throw new Error(`bridge ${operation}: session file missing on disk: ${sessionFilePath || existingFile}`);
     }
     return { bridgeDir, index, raw, entry, sessionFilePath };
   }
@@ -996,12 +1084,11 @@ export class BridgeSessionManager {
       : this._listAgentsForReconcile();
     for (const agent of agents) {
       const index = this.readIndex(agent);
-      const bridgeDir = path.join(agent.sessionDir, "bridge");
       for (const [sessionKey, raw] of Object.entries(index)) {
         const entry = this._normalizeIndexEntry(raw);
         if (!entry.file) continue;
-        const entryPath = path.resolve(bridgeDir, entry.file);
-        if (entryPath !== resolved) continue;
+        const entryPath = resolveBridgeSessionFilePath(agent.sessionDir, entry.file);
+        if (!entryPath || path.resolve(entryPath) !== resolved) continue;
         const fileRoot = String(entry.file).split(/[\\/]/)[0];
         return buildBridgeContext({
           ...entry,
@@ -1074,15 +1161,14 @@ export class BridgeSessionManager {
 
   listDailyFreshCompactTargets(agent, { now = new Date() } = {}) {
     const index = this.readIndex(agent);
-    const bridgeDir = path.join(agent.sessionDir, "bridge");
     const targets = [];
     for (const [sessionKey, raw] of Object.entries(index)) {
       const entry = this._normalizeIndexEntry(raw);
       if (!entry.file) continue;
-      const root = String(entry.file).split(/[\\/]/)[0];
-      if (root !== "owner") continue;
-      const sessionPath = path.join(bridgeDir, entry.file);
-      if (!fs.existsSync(sessionPath)) continue;
+      const inferredRole = this._inferIndexEntryRole(entry, entry.file);
+      if (inferredRole !== "owner") continue;
+      const sessionPath = resolveBridgeSessionFilePath(agent.sessionDir, entry.file);
+      if (!sessionPath || !fs.existsSync(sessionPath)) continue;
       if (this.isSessionStreaming(sessionKey)) continue;
       const decision = shouldRunFreshCompact({ meta: entry, now });
       if (decision.run) {
@@ -1123,8 +1209,7 @@ export class BridgeSessionManager {
       const bridgeContext = this._buildBridgeContext(sessionKey, meta, opts, agent);
       const mm = this._deps.getModelManager();
       const bridgeDir = path.join(agent.sessionDir, "bridge");
-      const subDir = opts.guest ? "guests" : "owner";
-      const sessionDir = path.join(bridgeDir, subDir);
+      const sessionDir = agent.sessionDir;
       fs.mkdirSync(sessionDir, { recursive: true });
 
       // 查找已有 session（兼容旧格式字符串和新格式对象）
@@ -1136,7 +1221,7 @@ export class BridgeSessionManager {
       const currentRole = bridgeContext.role || (isGuest ? "guest" : "owner");
       const roleChanged = !!previousRole && previousRole !== currentRole;
       let promptSnapshot = roleChanged ? null : normalizeSessionPromptSnapshot(entry.promptSnapshot);
-      const existingPath = existingFile ? path.join(bridgeDir, existingFile) : null;
+      const existingPath = existingFile ? resolveBridgeSessionFilePath(agent.sessionDir, existingFile) : null;
 
       let mgr;
       let reopenError = null;
@@ -1672,7 +1757,6 @@ export class BridgeSessionManager {
     }
 
     // 3. 读索引 → 拿到 jsonl 绝对路径
-    const bridgeDir = path.join(agent.sessionDir, "bridge");
     const index = this.readIndex(agent);
     const raw = index[sessionKey];
     const entry = this._normalizeIndexEntry(raw);
@@ -1680,9 +1764,9 @@ export class BridgeSessionManager {
     if (!existingFile) {
       throw new Error(`bridge compact: session "${sessionKey}" not found or has no history`);
     }
-    const sessionFilePath = path.join(bridgeDir, existingFile);
-    if (!fs.existsSync(sessionFilePath)) {
-      throw new Error(`bridge compact: session file missing on disk: ${sessionFilePath}`);
+    const sessionFilePath = resolveBridgeSessionFilePath(agent.sessionDir, existingFile);
+    if (!sessionFilePath || !fs.existsSync(sessionFilePath)) {
+      throw new Error(`bridge compact: session file missing on disk: ${sessionFilePath || existingFile}`);
     }
 
     // 4. 打开 SessionManager + 组装 owner 模式 createAgentSession opts

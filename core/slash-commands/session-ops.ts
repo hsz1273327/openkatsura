@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { resolveBridgeSessionFilePath } from "../bridge-session-manager.ts";
 
 /**
  * @typedef {{kind:'bridge'|'desktop', agentId:string, sessionKey?:string, sessionPath?:string}} SessionRef
@@ -57,16 +58,19 @@ export function createSessionOps({ engine }) {
     },
 
     async freshCompact(ref) {
-      if (ref.kind !== "bridge") {
-        throw new Error("freshCompact for desktop kind not supported in phase 1");
+      if (ref.kind === "bridge") {
+        if (typeof engine.freshCompactBridgeSession !== "function") {
+          throw new Error("freshCompact: engine.freshCompactBridgeSession not available");
+        }
+        return await engine.freshCompactBridgeSession(ref.sessionKey, {
+          agentId: ref.agentId,
+          reason: "manual",
+        });
       }
-      if (typeof engine.freshCompactBridgeSession !== "function") {
-        throw new Error("freshCompact: engine.freshCompactBridgeSession not available");
+      if (typeof engine.freshCompactDesktopSession === "function") {
+        return await engine.freshCompactDesktopSession(ref.sessionPath);
       }
-      return await engine.freshCompactBridgeSession(ref.sessionKey, {
-        agentId: ref.agentId,
-        reason: "manual",
-      });
+      throw new Error("freshCompact: engine.freshCompactDesktopSession not available");
     },
   };
 }
@@ -86,7 +90,7 @@ function _archivedFilename(file, ts) {
 function _rotateBridge(engine, ref) {
   const agent = engine.getAgent(ref.agentId);
   if (!agent) throw new Error("agent not found");
-  const bridgeDir = path.join(agent.sessionDir, "bridge");
+  const bridgeDir = path.resolve(agent.sessionDir, "bridge");
   const index = engine.bridgeSessionManager.readIndex(agent);
   const raw = index[ref.sessionKey];
   if (!raw) return { status: "not-found" };
@@ -96,10 +100,15 @@ function _rotateBridge(engine, ref) {
     engine.bridgeSessionManager.writeIndex(index, agent);
     return { status: "no-history" };
   }
-  const src = path.join(bridgeDir, entry.file);
-  if (fs.existsSync(src)) {
-    const archived = _archivedFilename(entry.file, Date.now());
-    fs.renameSync(src, path.join(bridgeDir, archived));
+  const src = resolveBridgeSessionFilePath(agent.sessionDir, entry.file);
+  if (src && fs.existsSync(src)) {
+    // Legacy sessions under sessions/bridge/ are archived in-place;
+    // unified sessions directly under agent.sessionDir stay intact in session history
+    // and /new simply unbinds the Bridge channel's active session pointer.
+    if (path.resolve(src).startsWith(bridgeDir + path.sep)) {
+      const archived = _archivedFilename(entry.file, Date.now());
+      fs.renameSync(src, path.join(bridgeDir, archived));
+    }
   }
   delete entry.file;
   index[ref.sessionKey] = entry;
@@ -110,14 +119,16 @@ function _rotateBridge(engine, ref) {
 function _deleteBridge(engine, ref) {
   const agent = engine.getAgent(ref.agentId);
   if (!agent) throw new Error("agent not found");
-  const bridgeDir = path.join(agent.sessionDir, "bridge");
   const index = engine.bridgeSessionManager.readIndex(agent);
   const raw = index[ref.sessionKey];
   if (!raw) return { status: "not-found" };
   const entry = typeof raw === "string" ? { file: raw } : raw;
   if (entry.file) {
-    const p = path.join(bridgeDir, entry.file);
-    if (fs.existsSync(p)) fs.unlinkSync(p);
+    const p = resolveBridgeSessionFilePath(agent.sessionDir, entry.file);
+    // Never unlink a shared desktop session file; only delete bridge-owned session files.
+    if (p && fs.existsSync(p) && !engine.isDesktopSessionPath?.(p)) {
+      fs.unlinkSync(p);
+    }
   }
   delete index[ref.sessionKey];
   engine.bridgeSessionManager.writeIndex(index, agent);

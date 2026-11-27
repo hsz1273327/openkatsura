@@ -96,6 +96,45 @@ describe("SessionOps bridge kind", () => {
     expect(fs.existsSync(path.join(bridgeDirFor("a1"), jsonl))).toBe(false);
   });
 
+  it("rotate on unified root session unbinds pointer without deleting or moving the standard session file", async () => {
+    const jsonl = "2026-11-27_unified-1.jsonl";
+    const unifiedPath = path.join(agentDir("a1"), jsonl);
+    fs.writeFileSync(unifiedPath, '{"role":"user"}\n');
+    writeIndex("a1", { "synology-chat_dm_u1@a1": { file: jsonl, name: "Carol" } });
+
+    const ops = createSessionOps({ engine });
+    const res = await ops.rotate({ kind: "bridge", sessionKey: "synology-chat_dm_u1@a1", agentId: "a1" });
+
+    expect(res).toEqual({ status: "rotated" });
+    expect(readIndex("a1")["synology-chat_dm_u1@a1"].file).toBeUndefined();
+    expect(readIndex("a1")["synology-chat_dm_u1@a1"].name).toBe("Carol");
+    expect(fs.existsSync(unifiedPath)).toBe(true);
+  });
+
+  it("delete removes unified bridge-owned session file, but preserves shared desktop session file", async () => {
+    const bridgeFile = "2026-11-27_bridge-only.jsonl";
+    const bridgePath = path.join(agentDir("a1"), bridgeFile);
+    fs.writeFileSync(bridgePath, '{"role":"user"}\n');
+    writeIndex("a1", { "qq_dm_u1@a1": { file: bridgeFile } });
+
+    const desktopFile = "2026-11-27_shared-desktop.jsonl";
+    const desktopPath = path.join(agentDir("a1"), desktopFile);
+    fs.writeFileSync(desktopPath, '{"role":"user"}\n');
+    writeIndex("a1", {
+      "qq_dm_u1@a1": { file: bridgeFile },
+      "qq_dm_u2@a1": { file: desktopFile },
+    });
+    engine.isDesktopSessionPath = vi.fn((p) => path.resolve(p) === path.resolve(desktopPath));
+
+    const ops = createSessionOps({ engine });
+    expect(await ops.delete({ kind: "bridge", sessionKey: "qq_dm_u1@a1", agentId: "a1" })).toEqual({ status: "deleted" });
+    expect(fs.existsSync(bridgePath)).toBe(false);
+
+    expect(await ops.delete({ kind: "bridge", sessionKey: "qq_dm_u2@a1", agentId: "a1" })).toEqual({ status: "deleted" });
+    expect(fs.existsSync(desktopPath)).toBe(true);
+    expect(readIndex("a1")["qq_dm_u2@a1"]).toBeUndefined();
+  });
+
   it("rotate on entry without file field returns {status:'no-history'} and preserves meta", async () => {
     writeIndex("a1", { "tg_dm_z@a1": { name: "NoFile" } });
     const ops = createSessionOps({ engine });
@@ -159,6 +198,14 @@ describe("SessionOps bridge kind", () => {
     expect(engine.bridgeSessionManager.injectMessage).toHaveBeenCalledWith("k", "hi", { agentId: "a1" });
   });
 
+  it("freshCompact delegates desktop kind to engine.freshCompactDesktopSession", async () => {
+    engine.freshCompactDesktopSession = vi.fn(async () => ({ tokensBefore: 5000, tokensAfter: 1800, fresh: true }));
+    const ops = createSessionOps({ engine });
+    const res = await ops.freshCompact({ kind: "desktop", agentId: "a1", sessionPath: "/s/desk.jsonl" });
+    expect(engine.freshCompactDesktopSession).toHaveBeenCalledWith("/s/desk.jsonl");
+    expect(res).toEqual({ tokensBefore: 5000, tokensAfter: 1800, fresh: true });
+  });
+
   it("compact delegates to engine.compactBridgeSession and returns usage", async () => {
     // Phase 7：不再注入 [上下文已压缩] 占位，走真正的 SDK compact 路径
     engine.compactBridgeSession = vi.fn(async () => ({
@@ -203,10 +250,10 @@ describe("SessionOps bridge kind", () => {
     expect(r).toMatchObject({ tokensBefore: 11000, tokensAfter: 5000, fresh: true });
   });
 
-  it("freshCompact rejects desktop refs until desktop freshness is explicitly implemented", async () => {
+  it("freshCompact throws when engine.freshCompactDesktopSession is missing", async () => {
     const ops = createSessionOps({ engine });
     await expect(ops.freshCompact({ kind: "desktop", agentId: "a1", sessionPath: "/x" }))
-      .rejects.toThrow(/desktop.*not supported/);
+      .rejects.toThrow(/freshCompactDesktopSession not available/);
   });
 });
 

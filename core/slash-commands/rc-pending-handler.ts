@@ -101,31 +101,62 @@ export async function handleRcPendingInput(ctx) {
     return { handled: true };
   }
 
-  // 建立接管态
-  try {
-    rcState.attach(sessionKey, sessionPath, {
-      platform: _platformFromSessionKey(sessionKey),
-      chatId,
-      agentId,
-      messageThreadId,
-    });
-  } catch (err) {
-    await _safeReply(reply, _normalizeAttachFailure(err));
-    return { handled: true };
+  // 建立/切换统一会话指针 + 接管态
+  const platform = _platformFromSessionKey(sessionKey);
+  const priorAttachment = rcState.getAttachment(sessionKey);
+  let attachedByEngine = false;
+  if (typeof engine?.switchBridgeSession === "function") {
+    try {
+      engine.switchBridgeSession(sessionKey, sessionPath, agentId, {
+        platform,
+        chatId,
+        messageThreadId,
+        title,
+      });
+      attachedByEngine = rcState.getAttachment(sessionKey)?.desktopSessionPath === sessionPath;
+    } catch (err) {
+      await _safeReply(reply, _normalizeAttachFailure(err));
+      return { handled: true };
+    }
   }
 
-  // Phase 2-D：广播 attached 事件，桌面 UI 据此渲染横幅
-  // sessionPath 是第二参数——前端按 sessionPath 路由到对应 session 的 UI 槽
-  try {
-    engine.emitEvent?.({
-      type: "bridge_rc_attached",
-      sessionKey,
-      sessionPath,
-      title,
-      platform: _platformFromSessionKey(sessionKey),
-    }, sessionPath);
-  } catch (err) {
-    log.warn(`emit attached event failed: ${err.message}`);
+  if (!attachedByEngine) {
+    try {
+      if (priorAttachment?.desktopSessionPath && priorAttachment.desktopSessionPath !== sessionPath) {
+        rcState.detach(sessionKey);
+        try {
+          engine.emitEvent?.({
+            type: "bridge_rc_detached",
+            sessionKey,
+            sessionPath: priorAttachment.desktopSessionPath,
+          }, priorAttachment.desktopSessionPath);
+        } catch (err) {
+          log.warn(`emit detached event failed: ${err.message}`);
+        }
+      }
+      rcState.attach(sessionKey, sessionPath, {
+        platform,
+        chatId,
+        agentId,
+        messageThreadId,
+      });
+    } catch (err) {
+      await _safeReply(reply, _normalizeAttachFailure(err));
+      return { handled: true };
+    }
+
+    // 广播 attached 事件，桌面 UI 据此渲染横幅
+    try {
+      engine.emitEvent?.({
+        type: "bridge_rc_attached",
+        sessionKey,
+        sessionPath,
+        title,
+        platform,
+      }, sessionPath);
+    } catch (err) {
+      log.warn(`emit attached event failed: ${err.message}`);
+    }
   }
 
   const body = summary
@@ -141,7 +172,7 @@ export async function handleRcPendingInput(ctx) {
  * 第一段 `_` 前就是 platform。UI 横幅可以显示"正被 TG 远程接管"。
  */
 function _platformFromSessionKey(sessionKey) {
-  const m = /^([a-z]+)_/i.exec(sessionKey || "");
+  const m = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
   return m ? m[1] : "bridge";
 }
 

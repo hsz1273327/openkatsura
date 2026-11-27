@@ -1,60 +1,72 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { t } from '../helpers';
-import { PlatformSection } from './bridge/PlatformSection';
-import { WechatSection } from './bridge/WechatSection';
-import { useBridgeState } from './bridge/useBridgeState';
-import type { BridgeSecretDraft } from './bridge/useBridgeSecretDrafts';
+import { PlatformSection, type CredentialField } from './bridge/PlatformSection';
+import {
+  useBridgeState,
+  type BridgeConfigFieldDescriptor,
+  type RegisteredBridgePlatform,
+} from './bridge/useBridgeState';
 import { BridgeAgentRow } from './bridge/BridgeAgentRow';
 import { BridgePermissionModeSelect, type BridgePermissionMode } from './bridge/BridgeWidgets';
-import {
-  BRIDGE_SETTINGS_PLATFORMS,
-  bridgePlatformLabel,
-  type BridgePlatform,
-} from '../../utils/bridge-platforms';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
 import { Toggle } from '@/ui';
 import { useSettingsStore } from '../store';
 import styles from '../Settings.module.css';
 
-function pendingSecret(draft: BridgeSecretDraft) {
-  const value = draft.value.trim();
-  return draft.dirty && value ? value : null;
+interface FieldDraft {
+  value: string;
+  dirty: boolean;
 }
 
-function hasUsableSecret(draft: BridgeSecretDraft) {
-  return draft.dirty ? pendingSecret(draft) !== null : draft.hasStored;
+type PlatformDraftMap = Record<string, Record<string, FieldDraft>>;
+
+function hasStoredSecretFor(platStatus: Record<string, unknown>, field: BridgeConfigFieldDescriptor): boolean {
+  const capKey = `has${field.key.charAt(0).toUpperCase()}${field.key.slice(1)}`;
+  if (typeof platStatus[capKey] === 'boolean') return platStatus[capKey] as boolean;
+  if (typeof platStatus[field.key] === 'string' && (platStatus[field.key] as string).length > 0) return true;
+  if (Array.isArray(field.legacyKeys)) {
+    for (const legacy of field.legacyKeys) {
+      if (typeof platStatus[legacy] === 'string' && (platStatus[legacy] as string).length > 0) return true;
+    }
+  }
+  return false;
 }
 
-function credentialPayload(
-  fields: Record<string, string>,
-  secretField: string,
-  draft: BridgeSecretDraft,
-) {
-  if (!draft.dirty) return fields;
-  return { ...fields, [secretField]: draft.value.trim() };
-}
-
-function shouldUseSavedSecret(draft: BridgeSecretDraft) {
-  return !draft.dirty && draft.hasStored;
-}
-
-function storedSecretPlaceholder(draft: BridgeSecretDraft) {
-  return draft.hasStored && !draft.dirty
-    ? t('settings.bridge.secretStoredPlaceholder')
-    : '';
+function defaultFieldValue(platStatus: Record<string, unknown>, field: BridgeConfigFieldDescriptor): string {
+  if (field.type === 'secret') return '';
+  const stored = platStatus[field.key];
+  if (typeof stored === 'string') return stored;
+  if (typeof field.defaultValue === 'string') return field.defaultValue;
+  if (field.type === 'select' && Array.isArray(field.options) && field.options.length > 0) {
+    return field.options[0].value;
+  }
+  return '';
 }
 
 export function BridgeTab() {
   const b = useBridgeState();
+  const [draftsByAgent, setDraftsByAgent] = useState<Record<string, PlatformDraftMap>>({});
   const snapshotBridge = useSettingsStore(s => s.settingsSnapshot.data?.preferences?.bridge);
-  // 注意：不能用 `|| {}` 兜底——空对象会让 Toggle 的 `!!status?.enabled` 显示成"假关"。
-  // 传 undefined 让 Toggle 走加载态。
-  const tgInfo = b.status?.telegram;
-  const fsInfo = b.status?.feishu;
-  const dtInfo = b.status?.dingtalk;
-  const qqInfo = b.status?.qq;
-  const wxInfo = b.status?.wechat;
+
+  const agentKey = b.selectedAgentId || '__default__';
+  const agentDrafts = draftsByAgent[agentKey] || {};
+
+  // Clear dirty flags for a platform after a save completes cleanly
+  const clearPlatformDrafts = (platId: string) => {
+    setDraftsByAgent((prev) => {
+      const current = prev[agentKey];
+      if (!current || !current[platId]) return prev;
+      const nextAgent = { ...current };
+      delete nextAgent[platId];
+      return { ...prev, [agentKey]: nextAgent };
+    });
+  };
+
+  useEffect(() => {
+    // No-op hook keeping agentKey scoped cleanly across agent switches
+  }, [agentKey]);
+
   const permissionMode = (b.status?.permissionMode || snapshotBridge?.permissionMode) as BridgePermissionMode | undefined;
   const receiptEnabled = typeof b.status?.receiptEnabled === 'boolean'
     ? b.status.receiptEnabled
@@ -64,235 +76,122 @@ export function BridgeTab() {
     : snapshotBridge
       ? snapshotBridge.richStreamingEnabled !== false
       : undefined;
-  const feishuRegionOptions = [
-    { value: 'feishu_cn', label: t('settings.bridge.feishuRegionFeishuCn') },
-    { value: 'lark_global', label: t('settings.bridge.feishuRegionLarkGlobal') },
-  ];
   const globalSettingsPending = !permissionMode || b.globalSettingsSaving;
-  const platformSections: Partial<Record<BridgePlatform, React.ReactNode>> = {
-    wechat: (
-      <WechatSection
-        status={wxInfo}
-        showToast={b.showToast}
-        onSaveConfig={(creds, enabled) => b.saveBridgeConfig('wechat', creds, enabled)}
-        onReload={b.loadStatus}
-        agentId={b.selectedAgentId}
-      />
-    ),
-    telegram: (
-      <PlatformSection
-        platform="telegram"
-        title={bridgePlatformLabel('telegram', t)}
-        status={tgInfo}
-        credentialFields={[
-          {
-            key: 'token',
-            label: t('settings.bridge.telegramToken'),
-            type: 'secret',
-            value: b.tgToken,
-            placeholder: storedSecretPlaceholder(b.tgTokenDraft),
-            onChange: b.setTgToken,
-          },
-        ]}
-        onToggle={async (on) => {
-          if (on && !hasUsableSecret(b.tgTokenDraft)) { b.showToast(t('settings.bridge.noToken'), 'error'); return; }
-          const credentials = b.tgTokenDraft.dirty
-            ? { token: b.tgToken.trim() }
-            : null;
-          await b.saveBridgeConfig('telegram', credentials, on);
-        }}
-        onTest={() => {
-          if (!hasUsableSecret(b.tgTokenDraft)) { b.showToast(t('settings.bridge.noToken'), 'error'); return; }
-          b.testPlatform(
-            'telegram',
-            credentialPayload({}, 'token', b.tgTokenDraft),
-            shouldUseSavedSecret(b.tgTokenDraft),
-          );
-        }}
-        onCredentialBlur={async () => {
-          if (b.tgTokenDraft.dirty) {
-            await b.saveBridgeConfig(
-              'telegram',
-              credentialPayload({}, 'token', b.tgTokenDraft),
-              undefined,
-            );
-          }
-        }}
-        testing={b.testingPlatform === 'telegram'}
-        hint={t('settings.bridge.telegramHint')}
-        ownerUsers={b.status?.knownUsers?.telegram || []}
-        currentOwner={b.status?.owner?.telegram}
-        onOwnerChange={(userId) => b.setOwner('telegram', userId)}
-      />
-    ),
-    feishu: (
-      <PlatformSection
-        platform="feishu"
-        title={bridgePlatformLabel('feishu', t)}
-        status={fsInfo}
-        credentialFields={[
-          {
-            key: 'region',
-            label: t('settings.bridge.feishuRegion'),
-            type: 'select',
-            value: b.fsRegion,
-            onChange: (value) => {
-              b.setFsRegion(value as typeof b.fsRegion);
-              if (b.fsAppId.trim() && hasUsableSecret(b.fsAppSecretDraft)) {
-                b.saveBridgeConfig('feishu', credentialPayload(
-                  { appId: b.fsAppId.trim(), region: value },
-                  'appSecret',
-                  b.fsAppSecretDraft,
-                ), undefined);
-              }
-            },
-            options: feishuRegionOptions,
-          },
-          { key: 'appId', label: t('settings.bridge.feishuAppId'), type: 'text', value: b.fsAppId, onChange: b.setFsAppId },
-          {
-            key: 'appSecret',
-            label: t('settings.bridge.feishuAppSecret'),
-            type: 'secret',
-            value: b.fsAppSecret,
-            placeholder: storedSecretPlaceholder(b.fsAppSecretDraft),
-            onChange: b.setFsAppSecret,
-          },
-        ]}
-        onToggle={async (on) => {
-          if (on && (!b.fsAppId.trim() || !hasUsableSecret(b.fsAppSecretDraft))) { b.showToast(t('settings.bridge.noCredentials'), 'error'); return; }
-          await b.saveBridgeConfig('feishu', credentialPayload(
-            { appId: b.fsAppId.trim(), region: b.fsRegion },
-            'appSecret',
-            b.fsAppSecretDraft,
-          ), on);
-        }}
-        onTest={() => {
-          if (!b.fsAppId.trim() || !hasUsableSecret(b.fsAppSecretDraft)) { b.showToast(t('settings.bridge.noCredentials'), 'error'); return; }
-          b.testPlatform('feishu', credentialPayload(
-            { appId: b.fsAppId.trim(), region: b.fsRegion },
-            'appSecret',
-            b.fsAppSecretDraft,
-          ), shouldUseSavedSecret(b.fsAppSecretDraft));
-        }}
-        onCredentialBlur={async () => {
-          if (b.fsAppId.trim() && (b.fsAppSecretDraft.dirty || b.fsAppSecretDraft.hasStored)) {
-            await b.saveBridgeConfig('feishu', credentialPayload(
-              { appId: b.fsAppId.trim(), region: b.fsRegion },
-              'appSecret',
-              b.fsAppSecretDraft,
-            ), undefined);
-          }
-        }}
-        testing={b.testingPlatform === 'feishu'}
-        hint={t('settings.bridge.feishuHint')}
-        ownerUsers={b.status?.knownUsers?.feishu || []}
-        currentOwner={b.status?.owner?.feishu}
-        onOwnerChange={(userId) => b.setOwner('feishu', userId)}
-      />
-    ),
-    dingtalk: (
-      <PlatformSection
-        platform="dingtalk"
-        title={bridgePlatformLabel('dingtalk', t)}
-        status={dtInfo}
-        credentialFields={[
-          { key: 'corpId', label: t('settings.bridge.dingtalkCorpId'), type: 'text', value: b.dtCorpId, onChange: b.setDtCorpId },
-          { key: 'clientId', label: t('settings.bridge.dingtalkClientId'), type: 'text', value: b.dtClientId, onChange: b.setDtClientId },
-          {
-            key: 'clientSecret',
-            label: t('settings.bridge.dingtalkClientSecret'),
-            type: 'secret',
-            value: b.dtClientSecret,
-            placeholder: storedSecretPlaceholder(b.dtClientSecretDraft),
-            onChange: b.setDtClientSecret,
-          },
-          { key: 'robotCode', label: t('settings.bridge.dingtalkRobotCode'), type: 'text', value: b.dtRobotCode, onChange: b.setDtRobotCode },
-          { key: 'apiBaseUrl', label: t('settings.bridge.dingtalkApiBaseUrl'), type: 'text', value: b.dtApiBaseUrl, onChange: b.setDtApiBaseUrl },
-        ]}
-        onToggle={async (on) => {
-          if (on && (!b.dtCorpId.trim() || !b.dtClientId.trim() || !hasUsableSecret(b.dtClientSecretDraft) || !b.dtRobotCode.trim() || !b.dtApiBaseUrl.trim())) { b.showToast(t('settings.bridge.noDingtalkCredentials'), 'error'); return; }
-          await b.saveBridgeConfig('dingtalk', credentialPayload({
-            corpId: b.dtCorpId.trim(),
-            clientId: b.dtClientId.trim(),
-            robotCode: b.dtRobotCode.trim(),
-            apiBaseUrl: b.dtApiBaseUrl.trim(),
-          }, 'clientSecret', b.dtClientSecretDraft), on);
-        }}
-        onTest={() => {
-          if (!b.dtCorpId.trim() || !b.dtClientId.trim() || !hasUsableSecret(b.dtClientSecretDraft) || !b.dtRobotCode.trim() || !b.dtApiBaseUrl.trim()) { b.showToast(t('settings.bridge.noDingtalkCredentials'), 'error'); return; }
-          b.testPlatform('dingtalk', credentialPayload({
-            corpId: b.dtCorpId.trim(),
-            clientId: b.dtClientId.trim(),
-            robotCode: b.dtRobotCode.trim(),
-            apiBaseUrl: b.dtApiBaseUrl.trim(),
-          }, 'clientSecret', b.dtClientSecretDraft), shouldUseSavedSecret(b.dtClientSecretDraft));
-        }}
-        onCredentialBlur={async () => {
-          if (b.dtCorpId.trim() && b.dtClientId.trim() && (b.dtClientSecretDraft.dirty || b.dtClientSecretDraft.hasStored) && b.dtRobotCode.trim() && b.dtApiBaseUrl.trim()) {
-            await b.saveBridgeConfig('dingtalk', credentialPayload({
-              corpId: b.dtCorpId.trim(),
-              clientId: b.dtClientId.trim(),
-              robotCode: b.dtRobotCode.trim(),
-              apiBaseUrl: b.dtApiBaseUrl.trim(),
-            }, 'clientSecret', b.dtClientSecretDraft), undefined);
-          }
-        }}
-        testing={b.testingPlatform === 'dingtalk'}
-        hint={t('settings.bridge.dingtalkHint')}
-        ownerUsers={b.status?.knownUsers?.dingtalk || []}
-        currentOwner={b.status?.owner?.dingtalk}
-        onOwnerChange={(userId) => b.setOwner('dingtalk', userId)}
-      />
-    ),
-    qq: (
-      <PlatformSection
-        platform="qq"
-        title={bridgePlatformLabel('qq', t)}
-        status={qqInfo}
-        credentialFields={[
-          { key: 'appID', label: t('settings.bridge.qqAppId'), type: 'text', value: b.qqAppId, onChange: b.setQqAppId },
-          {
-            key: 'appSecret',
-            label: t('settings.bridge.qqAppSecret'),
-            type: 'secret',
-            value: b.qqAppSecret,
-            placeholder: storedSecretPlaceholder(b.qqAppSecretDraft),
-            onChange: b.setQqAppSecret,
-          },
-        ]}
-        onToggle={async (on) => {
-          if (on && (!b.qqAppId.trim() || !hasUsableSecret(b.qqAppSecretDraft))) { b.showToast(t('settings.bridge.noCredentials'), 'error'); return; }
-          await b.saveBridgeConfig('qq', credentialPayload(
-            { appID: b.qqAppId.trim() },
-            'appSecret',
-            b.qqAppSecretDraft,
-          ), on);
-        }}
-        onTest={() => {
-          if (!b.qqAppId.trim() || !hasUsableSecret(b.qqAppSecretDraft)) { b.showToast(t('settings.bridge.noCredentials'), 'error'); return; }
-          b.testPlatform('qq', credentialPayload(
-            { appID: b.qqAppId.trim() },
-            'appSecret',
-            b.qqAppSecretDraft,
-          ), shouldUseSavedSecret(b.qqAppSecretDraft));
-        }}
-        onCredentialBlur={async () => {
-          if (b.qqAppId.trim() && (b.qqAppSecretDraft.dirty || b.qqAppSecretDraft.hasStored)) {
-            await b.saveBridgeConfig('qq', credentialPayload(
-              { appID: b.qqAppId.trim() },
-              'appSecret',
-              b.qqAppSecretDraft,
-            ), undefined);
-          }
-        }}
-        testing={b.testingPlatform === 'qq'}
-        hint={t('settings.bridge.qqHint')}
-        ownerUsers={b.status?.knownUsers?.qq || []}
-        currentOwner={b.status?.owner?.qq}
-        onOwnerChange={(userId) => b.setOwner('qq', userId)}
-      />
-    ),
+
+  const setFieldDraft = (platId: string, fieldKey: string, value: string) => {
+    setDraftsByAgent((prev) => ({
+      ...prev,
+      [agentKey]: {
+        ...(prev[agentKey] || {}),
+        [platId]: {
+          ...(prev[agentKey]?.[platId] || {}),
+          [fieldKey]: { value, dirty: true },
+        },
+      },
+    }));
   };
+
+  const renderPluginSection = (descriptor: RegisteredBridgePlatform) => {
+    const platId = descriptor.id;
+    const platStatus = ((b.status?.[platId] as Record<string, unknown> | undefined) || {});
+    const schema = Array.isArray(descriptor.configSchema) ? descriptor.configSchema : [];
+    const platDraft = agentDrafts[platId] || {};
+
+    const getFieldValue = (field: BridgeConfigFieldDescriptor) => {
+      const draft = platDraft[field.key];
+      if (draft?.dirty) return draft.value;
+      return defaultFieldValue(platStatus, field);
+    };
+
+    const hasUsableField = (field: BridgeConfigFieldDescriptor) => {
+      const draft = platDraft[field.key];
+      if (field.type === 'secret') {
+        return draft?.dirty ? draft.value.trim().length > 0 : hasStoredSecretFor(platStatus, field);
+      }
+      return getFieldValue(field).trim().length > 0;
+    };
+
+    const hasRequiredFields = () => schema.every((field) => !field.required || hasUsableField(field));
+
+    const buildCredentials = () => {
+      const creds: Record<string, string> = {};
+      for (const field of schema) {
+        const draft = platDraft[field.key];
+        if (field.type === 'secret') {
+          if (draft?.dirty) creds[field.key] = draft.value.trim();
+        } else {
+          creds[field.key] = getFieldValue(field).trim();
+        }
+      }
+      return creds;
+    };
+
+    const shouldUseSavedSecret = () => schema.some(
+      (field) => field.type === 'secret' && !platDraft[field.key]?.dirty && hasStoredSecretFor(platStatus, field),
+    );
+
+    const credentialFields: CredentialField[] = schema.map((field) => {
+      const draft = platDraft[field.key];
+      const storedSecret = field.type === 'secret' && !draft?.dirty && hasStoredSecretFor(platStatus, field);
+      return {
+        key: field.key,
+        label: field.label || field.key,
+        type: field.type === 'secret' ? 'secret' : field.type === 'select' ? 'select' : 'text',
+        value: getFieldValue(field),
+        placeholder: storedSecret
+          ? t('settings.bridge.secretStoredPlaceholder')
+          : (field.placeholder || ''),
+        options: field.options,
+        onChange: (value: string) => {
+          setFieldDraft(platId, field.key, value);
+          if (field.type === 'select' && hasRequiredFields()) {
+            const nextCreds = { ...buildCredentials(), [field.key]: value.trim() };
+            void b.saveBridgeConfig(platId, nextCreds, undefined).then(() => clearPlatformDrafts(platId));
+          }
+        },
+      };
+    });
+
+    return (
+      <PlatformSection
+        key={platId}
+        platform={platId}
+        title={descriptor.displayName || platId}
+        status={platStatus as { status?: string; error?: string; enabled?: boolean }}
+        credentialFields={credentialFields}
+        onToggle={async (on) => {
+          if (on && !hasRequiredFields()) {
+            b.showToast(t('settings.bridge.noCredentials'), 'error');
+            return;
+          }
+          const creds = buildCredentials();
+          const hasChanges = Object.keys(creds).length > 0;
+          await b.saveBridgeConfig(platId, hasChanges ? creds : null, on);
+          clearPlatformDrafts(platId);
+        }}
+        onTest={() => {
+          if (!hasRequiredFields()) {
+            b.showToast(t('settings.bridge.noCredentials'), 'error');
+            return;
+          }
+          void b.testPlatform(platId, buildCredentials(), shouldUseSavedSecret());
+        }}
+        onCredentialBlur={async () => {
+          const hasDirty = Object.values(platDraft).some((d) => d.dirty);
+          if (!hasDirty) return;
+          await b.saveBridgeConfig(platId, buildCredentials(), undefined);
+          clearPlatformDrafts(platId);
+        }}
+        testing={b.testingPlatform === platId}
+        hint={descriptor.description}
+        ownerUsers={b.status?.knownUsers?.[platId] || []}
+        currentOwner={b.status?.owner?.[platId]}
+        onOwnerChange={(userId) => b.setOwner(platId, userId)}
+      />
+    );
+  };
+
+  const registeredPlatforms = Array.isArray(b.status?.platforms) ? b.status.platforms : null;
 
   return (
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="bridge">
@@ -360,36 +259,25 @@ export function BridgeTab() {
         </div>
       </SettingsSection>
 
-      <div className="bridge-help-link-row">
-        <span className="bridge-help-link" onClick={() => window.dispatchEvent(new Event('hana-show-bridge-tutorial'))}>
-          {t('settings.bridge.howTo')}
-        </span>
-      </div>
-
-      {(() => {
-        const registeredPlatforms = Array.isArray((b.status as any)?.platforms)
-          ? new Set<string>((b.status as any).platforms.map((p: any) => p.id))
-          : null;
-        const visibleDescriptors = registeredPlatforms
-          ? BRIDGE_SETTINGS_PLATFORMS.filter((d) => registeredPlatforms.has(d.id))
-          : BRIDGE_SETTINGS_PLATFORMS;
-        if (registeredPlatforms && visibleDescriptors.length === 0) {
-          return (
-            <SettingsSection title="社交平台插件">
-              <div className={styles['settings-section-inset']}>
-                <div className={styles['settings-section-hint']}>
-                  当前未启用任何社交平台插件。请前往「设置 → 插件」启用所需平台（例如 QQ 机器人）。
-                </div>
-              </div>
-            </SettingsSection>
-          );
-        }
-        return visibleDescriptors.map((descriptor) => (
-          <React.Fragment key={descriptor.id}>
-            {platformSections[descriptor.id]}
-          </React.Fragment>
-        ));
-      })()}
+      {registeredPlatforms === null ? (
+        <SettingsSection title={t('settings.tabs.bridge')}>
+          <div className={styles['settings-section-inset']}>
+            <div className={styles['settings-section-hint']}>
+              {t('common.loading')}
+            </div>
+          </div>
+        </SettingsSection>
+      ) : registeredPlatforms.length === 0 ? (
+        <SettingsSection title={t('settings.tabs.bridge')}>
+          <div className={styles['settings-section-inset']}>
+            <div className={styles['settings-section-hint']}>
+              当前未启用任何社交平台插件。请前往「设置 → 插件」安装并启用所需平台（例如 QQ 机器人）。
+            </div>
+          </div>
+        </SettingsSection>
+      ) : (
+        registeredPlatforms.map((descriptor) => renderPluginSection(descriptor))
+      )}
     </div>
   );
 }

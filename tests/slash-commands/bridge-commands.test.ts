@@ -372,16 +372,28 @@ describe("/fresh-compact", () => {
     expect((r as any)?.silent).toBe(true);
   });
 
-  it("rejects fresh-compact while bridge is attached to a desktop session", async () => {
+  it("routes fresh-compact to the attached desktop session identically to desktop UI", async () => {
     const rcState = {
       getAttachment: vi.fn(() => ({ desktopSessionPath: "/desktop/session.jsonl" })),
       isAttached: vi.fn(() => true),
     };
-    const ctx = makeCtx({ engine: { rcState } });
+    const ctx = makeCtx({
+      engine: { rcState },
+      sessionOps: {
+        ...makeCtx().sessionOps,
+        freshCompact: vi.fn(async () => ({ tokensBefore: 9000, tokensAfter: 3000, fresh: true })),
+      },
+    });
 
     const r = await cmd.handler(ctx);
 
-    expect((r as any).reply).toMatch(/接管桌面会话期间/);
-    expect(ctx.sessionOps.freshCompact).not.toHaveBeenCalled();
+    expect(ctx.sessionOps.freshCompact).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "desktop",
+      agentId: "a1",
+      sessionPath: "/desktop/session.jsonl",
+    }));
+    expect(ctx.reply).toHaveBeenCalledTimes(2);
+    expect(ctx.reply.mock.calls[1][0]).toMatch(/9000.*3000/);
+    expect((r as any)?.silent).toBe(true);
   });
 });

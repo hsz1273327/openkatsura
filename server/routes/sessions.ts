@@ -93,7 +93,7 @@ const switchLog = createModuleLogger("sessions/switch");
 const SESSION_SEARCH_QUERY_MAX_LENGTH = 512;
 
 function rcPlatformFromSessionKey(sessionKey) {
-  const match = /^([a-z]+)_/i.exec(sessionKey || "");
+  const match = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
   return match ? match[1] : "bridge";
 }
 
@@ -317,11 +317,6 @@ function resolveHistoryPageBounds(sourceMessages, { beforeId, limit, forceAll })
     : total;
   const startIdx = Math.max(0, endIdx - limit);
   return { total, startIdx, endIdx, hasMore: startIdx > 0 };
-}
-
-function isBridgeSessionPath(sessionPath) {
-  if (typeof sessionPath !== "string" || !sessionPath) return false;
-  return sessionPath.split(/[\\/]+/).includes("bridge");
 }
 
 /**
@@ -1044,12 +1039,7 @@ export function createSessionsRoute(engine, hub = null) {
         entries = cached.entries;
       } else {
         const sourceMessages = await loadSessionHistoryMessages(engine, queryPath);
-        const sanitize = (value) => {
-          const withoutReminder = stripSessionReminderBlocks(value);
-          return isBridgeSessionPath(queryPath)
-            ? sanitizeBridgeVisibleText(withoutReminder)
-            : withoutReminder;
-        };
+        const sanitize = (value) => sanitizeBridgeVisibleText(stripSessionReminderBlocks(value));
         entries = collectFindableHistoryEntries(sourceMessages, sanitize);
         if (revision) {
           findEntriesCache.set(queryPath, { revision, entries });
@@ -1345,12 +1335,7 @@ export function createSessionsRoute(engine, hub = null) {
           }
         }
       }
-      const sanitizeVisibleContent = (value) => {
-        const withoutReminder = stripSessionReminderBlocks(value);
-        return isBridgeSessionPath(resolvedSessionPath)
-          ? sanitizeBridgeVisibleText(withoutReminder)
-          : withoutReminder;
-      };
+      const sanitizeVisibleContent = (value) => sanitizeBridgeVisibleText(stripSessionReminderBlocks(value));
 
       // 分页参数
       const beforeId = c.req.query("before") != null ? Number(c.req.query("before")) : null;

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BridgeTab } from '../../settings/tabs/BridgeTab';
 import { useBridgeState } from '../../settings/tabs/bridge/useBridgeState';
+import { useSettingsStore } from '../../settings/store';
 
 vi.mock('../../settings/helpers', () => ({
   t: (key: string) => key,
@@ -17,23 +18,17 @@ vi.mock('../../settings/tabs/bridge/PlatformSection', () => ({
   PlatformSection: ({ platform }: { platform: string }) => <div data-testid={`platform-${platform}`} />,
 }));
 
-vi.mock('../../settings/tabs/bridge/WechatSection', () => ({
-  WechatSection: () => <div data-testid="platform-wechat" />,
-}));
-
 vi.mock('../../settings/tabs/bridge/BridgeAgentRow', () => ({
   BridgeAgentRow: () => <div data-testid="bridge-agent-row" />,
 }));
 
-function bridgeState(overrides = {}) {
-  const emptyDraft = { ownerId: 'hana', value: '', dirty: false, revision: 0, hasStored: false };
+function bridgeState(overrides: Record<string, unknown> = {}) {
   return {
     status: {
-      telegram: {},
-      feishu: {},
-      dingtalk: {},
-      qq: {},
-      wechat: {},
+      platforms: [
+        { id: 'qq', displayName: 'QQ', configSchema: [] },
+        { id: 'synology-chat', displayName: 'Synology Chat', configSchema: [] },
+      ],
       permissionMode: 'auto',
       readOnly: false,
       receiptEnabled: true,
@@ -47,32 +42,6 @@ function bridgeState(overrides = {}) {
     publicAgentsMd: '',
     setPublicAgentsMd: vi.fn(),
     savePublicAgentsMd: vi.fn(),
-    tgToken: '',
-    tgTokenDraft: emptyDraft,
-    setTgToken: vi.fn(),
-    fsAppId: '',
-    setFsAppId: vi.fn(),
-    fsAppSecret: '',
-    fsAppSecretDraft: emptyDraft,
-    setFsAppSecret: vi.fn(),
-    fsRegion: 'feishu_cn',
-    setFsRegion: vi.fn(),
-    dtClientId: '',
-    setDtClientId: vi.fn(),
-    dtCorpId: '',
-    setDtCorpId: vi.fn(),
-    dtClientSecret: '',
-    dtClientSecretDraft: emptyDraft,
-    setDtClientSecret: vi.fn(),
-    dtRobotCode: '',
-    setDtRobotCode: vi.fn(),
-    dtApiBaseUrl: '',
-    setDtApiBaseUrl: vi.fn(),
-    qqAppId: '',
-    setQqAppId: vi.fn(),
-    qqAppSecret: '',
-    qqAppSecretDraft: emptyDraft,
-    setQqAppSecret: vi.fn(),
     saveBridgeConfig: vi.fn(),
     testPlatform: vi.fn(),
     testingPlatform: null,
@@ -84,62 +53,56 @@ function bridgeState(overrides = {}) {
   };
 }
 
-describe('BridgeTab permission mode', () => {
+describe('BridgeTab permission mode and dynamic plugin rendering', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
-  });
-
-  it('renders bridge permission mode as a three-option select without ask mode', async () => {
-    const saveGlobalSettings = vi.fn();
-    vi.mocked(useBridgeState).mockReturnValue(bridgeState({ saveGlobalSettings }) as never);
-
-    render(<BridgeTab />);
-
-    expect(screen.getByText('settings.bridge.receiptEnabled')).not.toBeNull();
-    expect(screen.getByText('settings.bridge.richStreamingEnabled')).not.toBeNull();
-    expect(screen.queryByText('settings.bridge.readOnly')).toBeNull();
-    expect(screen.getByText('settings.bridge.permissionMode')).not.toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: /settings\.bridge\.permissionModeAuto/ }));
-
-    expect(screen.getByRole('option', { name: /settings\.bridge\.permissionModeAuto/ })).not.toBeNull();
-    expect(screen.getByRole('option', { name: /settings\.bridge\.permissionModeOperate/ })).not.toBeNull();
-    expect(screen.getByRole('option', { name: /settings\.bridge\.permissionModeReadOnly/ })).not.toBeNull();
-    expect(screen.queryByRole('option', { name: /ask/i })).toBeNull();
-
-    fireEvent.click(screen.getByRole('option', { name: /settings\.bridge\.permissionModeOperate/ }));
-
-    await waitFor(() => {
-      expect(saveGlobalSettings).toHaveBeenCalledWith({ permissionMode: 'operate' });
+    useSettingsStore.setState({
+      settingsSnapshot: { status: 'idle', key: null, data: null, error: null, requestId: 0, updatedAt: null },
     });
   });
 
-  it('saves the bridge receipt toggle through global bridge settings', async () => {
+  it('renders bridge permission mode as a three-option select without ask mode', () => {
     const saveGlobalSettings = vi.fn();
     vi.mocked(useBridgeState).mockReturnValue(bridgeState({ saveGlobalSettings }) as never);
 
     render(<BridgeTab />);
 
-    const receiptToggle = screen.getByRole('switch', { name: /settings\.bridge\.receiptEnabled/ });
-    expect(receiptToggle.getAttribute('aria-checked')).toBe('true');
+    const trigger = screen.getByRole('button', { name: /settings\.bridge\.permissionModeAuto/ });
+    fireEvent.click(trigger);
 
-    fireEvent.click(receiptToggle);
+    expect(screen.getByRole('option', { name: 'settings.bridge.permissionModeReadOnly' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'settings.bridge.permissionModeAuto' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'settings.bridge.permissionModeOperate' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /ask/i })).toBeNull();
 
+    fireEvent.click(screen.getByRole('option', { name: 'settings.bridge.permissionModeOperate' }));
+    expect(saveGlobalSettings).toHaveBeenCalledWith({ permissionMode: 'operate' });
+  });
+
+  it('saves the bridge receipt toggle through global bridge settings', () => {
+    const saveGlobalSettings = vi.fn();
+    vi.mocked(useBridgeState).mockReturnValue(bridgeState({ saveGlobalSettings }) as never);
+
+    render(<BridgeTab />);
+
+    const toggle = screen.getByRole('switch', { name: 'settings.bridge.receiptEnabled' });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.click(toggle);
     expect(saveGlobalSettings).toHaveBeenCalledWith({ receiptEnabled: false });
   });
 
-  it('saves the rich streaming toggle through global bridge settings', async () => {
+  it('saves the rich streaming toggle through global bridge settings', () => {
     const saveGlobalSettings = vi.fn();
     vi.mocked(useBridgeState).mockReturnValue(bridgeState({ saveGlobalSettings }) as never);
 
     render(<BridgeTab />);
 
-    const richToggle = screen.getByRole('switch', { name: /settings\.bridge\.richStreamingEnabled/ });
-    expect(richToggle.getAttribute('aria-checked')).toBe('true');
+    const toggle = screen.getByRole('switch', { name: 'settings.bridge.richStreamingEnabled' });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
 
-    fireEvent.click(richToggle);
-
+    fireEvent.click(toggle);
     expect(saveGlobalSettings).toHaveBeenCalledWith({ richStreamingEnabled: false });
   });
 
@@ -153,17 +116,30 @@ describe('BridgeTab permission mode', () => {
     expect(screen.queryByRole('button', { name: /settings\.bridge\.permissionModeAuto/ })).toBeNull();
   });
 
-  it('renders settings platforms in descriptor order including DingTalk', () => {
-    vi.mocked(useBridgeState).mockReturnValue(bridgeState() as never);
+  it('renders empty-state guidance when no bridge plugins are registered', () => {
+    const state = bridgeState();
+    (state.status as { platforms: unknown[] }).platforms = [];
+    vi.mocked(useBridgeState).mockReturnValue(state as never);
 
     render(<BridgeTab />);
 
-    const ids = ['wechat', 'telegram', 'feishu', 'dingtalk', 'qq'];
-    const positions = ids.map((id) => {
-      const element = screen.getByTestId(`platform-${id}`);
-      return Array.from(document.body.querySelectorAll('[data-testid^="platform-"]')).indexOf(element);
-    });
+    expect(document.body.querySelectorAll('[data-testid^="platform-"]').length).toBe(0);
+    expect(document.body.textContent).toContain('当前未启用任何社交平台插件');
+  });
 
-    expect(positions).toEqual([0, 1, 2, 3, 4]);
+  it('renders arbitrary registered plugins strictly in registration order without hardcoded platforms', () => {
+    const state = bridgeState();
+    (state.status as { platforms: unknown[] }).platforms = [
+      { id: 'synology-chat', displayName: 'Synology Chat', configSchema: [] },
+      { id: 'qq', displayName: 'QQ', configSchema: [] },
+      { id: 'discord', displayName: 'Discord', configSchema: [] },
+    ];
+    vi.mocked(useBridgeState).mockReturnValue(state as never);
+
+    render(<BridgeTab />);
+
+    const rendered = Array.from(document.body.querySelectorAll('[data-testid^="platform-"]'))
+      .map((el) => el.getAttribute('data-testid'));
+    expect(rendered).toEqual(['platform-synology-chat', 'platform-qq', 'platform-discord']);
   });
 });

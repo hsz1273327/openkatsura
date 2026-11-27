@@ -1207,9 +1207,17 @@ export class BridgeManager {
     this._appendPendingAttachments(entry, pending.attachments, attachments);
     Object.assign(pending, { platform, chatId, senderName, displayName, avatarUrl, userId, principalId, qqPrincipal, isGroup, isOwner, bridgeRole, messageThreadId, replyContext });
 
-    const isActive = this.engine.isBridgeSessionStreaming(sessionKey, { role: bridgeRole });
+    const isActive = this._isChannelSessionStreaming(sessionKey, agentId, bridgeRole);
 
     this._schedulePendingFlush(sessionKey, isActive ? 1000 : 2000);
+  }
+
+  _isChannelSessionStreaming(sessionKey, agentId, bridgeRole = null) {
+    const desktopPath = this.engine?.resolveBridgeDesktopSessionPath?.(sessionKey, agentId) ?? null;
+    if (desktopPath && this.engine?.isSessionStreaming?.(desktopPath)) {
+      return true;
+    }
+    return this.engine?.isBridgeSessionStreaming?.(sessionKey, bridgeRole ? { role: bridgeRole } : undefined) ?? false;
   }
 
   /**
@@ -1907,20 +1915,40 @@ export class BridgeManager {
         ...(qqPrincipal ? { qqPrincipal } : {}),
       };
 
-      // ── RC 接管态路由（Phase 2-C） ──
-      // attachment 存在 → 消息进桌面 session 而非 bridge session
-      // attachment 仅对 owner 生效（/rc 是 owner-only，guest 不会有 attachment，但 isOwner 防御检查一道）
+      // ── 统一会话指针路由（owner 会话全部收归 SessionCoordinator） ──
+      // 1) 若已有内存态接管或持久化桌面会话指针 → 直接走 SessionCoordinator
+      // 2) 若 owner 频道尚未绑定会话（首次发消息 / /new / /exitrc 后）→ 通过 ensureBridgeOwnerSession
+      //    在 SessionCoordinator 中创建标准会话并绑定指针，桌面端列表与 /switch 立即可见且无双写
+      // 3) 历史遗留的 domain:"bridge" 会话与 guest/群聊仍保留原有隔离路径兼容
       const rcState = this.engine.rcState;
       const rcAttachment = !isGroup && isOwner ? rcState?.getAttachment(sessionKey) : null;
-      if (rcAttachment) {
-        if (!(await this._desktopSessionStillExists(rcAttachment.desktopSessionPath))) {
+      const persistedDesktopPath = !isGroup && isOwner && !rcAttachment
+        ? this.engine.resolveBridgeDesktopSessionPath?.(sessionKey, agentId) ?? null
+        : null;
+      let attachedDesktopPath = rcAttachment?.desktopSessionPath || persistedDesktopPath;
+      let freshlyCreatedDesktopSession = false;
+      if (!isGroup && isOwner && !attachedDesktopPath && typeof this.engine.ensureBridgeOwnerSession === "function") {
+        const ensured = await this.engine.ensureBridgeOwnerSession(sessionKey, agentId, {
+          platform,
+          chatId,
+          messageThreadId,
+          meta,
+        });
+        if (ensured?.sessionPath) {
+          attachedDesktopPath = ensured.sessionPath;
+          freshlyCreatedDesktopSession = ensured.created === true;
+        }
+      }
+      if (attachedDesktopPath) {
+        if (!freshlyCreatedDesktopSession && !(await this._desktopSessionStillExists(attachedDesktopPath))) {
           rcState?.detach(sessionKey);
+          this.engine.unbindBridgeSessionPointer?.(sessionKey, agentId, attachedDesktopPath);
           try {
             this.engine.emitEvent?.({
               type: "bridge_rc_detached",
               sessionKey,
-              sessionPath: rcAttachment.desktopSessionPath,
-            }, rcAttachment.desktopSessionPath);
+              sessionPath: attachedDesktopPath,
+            }, attachedDesktopPath);
           } catch (err) {
             log.warn(`emit bridge_rc_detached failed: ${err?.message}`);
           }
@@ -1934,9 +1962,26 @@ export class BridgeManager {
           }
           return;
         }
+        // 若由持久化指针恢复（如重启后），同步回填 rcState 以便桌面 UI 显示横幅并支持镜像回传
+        if (!rcAttachment && rcState && !rcState.isDesktopSessionAttached?.(attachedDesktopPath)) {
+          try {
+            rcState.attach(sessionKey, attachedDesktopPath, {
+              platform,
+              chatId,
+              agentId,
+              messageThreadId,
+            });
+            this.engine.emitEvent?.({
+              type: "bridge_rc_attached",
+              sessionKey,
+              sessionPath: attachedDesktopPath,
+              platform,
+            }, attachedDesktopPath);
+          } catch {}
+        }
         await this._flushAttachedDesktopSession({
           sessionKey,
-          desktopSessionPath: rcAttachment.desktopSessionPath,
+          desktopSessionPath: attachedDesktopPath,
           platform,
           chatId,
           agentId,
@@ -2080,7 +2125,11 @@ export class BridgeManager {
         : (pending.lines?.length ?? 0) > 0)
       : false;
     if (hasBufferedInbound) return { mode: "busy" };
-    if (this.engine?.isBridgeSessionStreaming?.(sessionKey)) return { mode: "busy" };
+    const activeDesktopPath = this.engine?.resolveBridgeDesktopSessionPath?.(sessionKey, agentId) ?? null;
+    if ((activeDesktopPath && this.engine?.isSessionStreaming?.(activeDesktopPath))
+      || this.engine?.isBridgeSessionStreaming?.(sessionKey)) {
+      return { mode: "busy" };
+    }
 
     const platform = this._platformFromSessionKey(sessionKey);
     const chatId = this._chatIdFromBridgeSessionKey(sessionKey);
@@ -2682,13 +2731,13 @@ export class BridgeManager {
   }
 
   _platformFromSessionKey(sessionKey) {
-    const match = /^([a-z]+)_/i.exec(sessionKey || "");
+    const match = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
     return match ? match[1] : "bridge";
   }
 
   _chatIdFromBridgeSessionKey(sessionKey) {
     const withoutAgent = String(sessionKey || "").split("@")[0] || "";
-    const match = /^[a-z]+_(?:dm|group)_(.+)$/i.exec(withoutAgent);
+    const match = /^[a-z0-9-]+_(?:dm|group)_(.+)$/i.exec(withoutAgent);
     return match ? match[1] : null;
   }
 

@@ -31,7 +31,7 @@ export function isBridgePlatform(value: unknown): value is BridgePlatform {
 }
 
 export function bridgePlatformLabel(
-  platform: BridgePlatform | BridgePlatformDescriptor,
+  platform: string | BridgePlatformDescriptor,
   translate?: (key: string) => string,
 ): string {
   const descriptor = typeof platform === 'string'

@@ -37,8 +37,32 @@ export interface DingTalkStatus extends PlatformStatusBase {
 export interface QQStatus extends PlatformStatusBase { appID?: string; appSecret?: string; hasAppSecret?: boolean }
 export interface WechatStatus extends PlatformStatusBase { token?: string }
 
+export interface BridgeConfigFieldDescriptor {
+  key: string;
+  label: string;
+  type: 'string' | 'secret' | 'select' | 'boolean';
+  required?: boolean;
+  placeholder?: string;
+  description?: string;
+  defaultValue?: string | boolean;
+  options?: Array<{ value: string; label: string }>;
+  legacyKeys?: string[];
+}
+
+export interface RegisteredBridgePlatform {
+  id: string;
+  displayName: string;
+  description?: string;
+  connectionMode?: string;
+  connectsAsync?: boolean;
+  configSchema?: BridgeConfigFieldDescriptor[];
+  secretFields?: string[];
+  actions?: string[];
+}
+
 export interface BridgeStatus {
   agentId?: string | null;
+  platforms?: RegisteredBridgePlatform[];
   telegram: TelegramStatus;
   feishu: FeishuStatus;
   dingtalk: DingTalkStatus;
@@ -49,11 +73,12 @@ export interface BridgeStatus {
   readOnly: boolean;
   receiptEnabled: boolean;
   richStreamingEnabled: boolean;
-  knownUsers: { telegram?: KnownUser[]; feishu?: KnownUser[]; dingtalk?: KnownUser[]; whatsapp?: KnownUser[]; qq?: KnownUser[]; wechat?: KnownUser[] };
-  owner: { telegram?: string; feishu?: string; dingtalk?: string; whatsapp?: string; qq?: string; wechat?: string };
+  knownUsers: Record<string, KnownUser[] | undefined>;
+  owner: Record<string, string | undefined>;
+  [platformId: string]: unknown;
 }
 
-export type BridgePlatform = 'telegram' | 'feishu' | 'dingtalk' | 'whatsapp' | 'qq' | 'wechat';
+export type BridgePlatform = string;
 
 // WeChat reports `connected` only after its first long-poll succeeds. QR
 // confirmation starts that handshake, so keep the settings view reconciled for
@@ -96,7 +121,9 @@ function normalizeBridgeStatus(data: unknown): BridgeStatus | null {
   if (!data || typeof data !== 'object') return null;
   const value = data as Partial<BridgeStatus>;
   return {
+    ...value,
     agentId: value.agentId || null,
+    platforms: Array.isArray(value.platforms) ? value.platforms : undefined,
     telegram: value.telegram || {},
     feishu: value.feishu || {},
     dingtalk: value.dingtalk || {},

@@ -798,13 +798,10 @@ describe('RightWorkspacePanel', () => {
   it('sends session files to an existing Bridge target from the context submenu', async () => {
     const sendBodies: unknown[] = [];
     vi.mocked(hanaFetch).mockImplementation(async (path, init) => {
-      if (path.startsWith('/api/bridge/sessions?platform=feishu')) {
-        return jsonResponse({
-          sessions: [{ sessionKey: 'fs_1', chatId: 'oc_chat', displayName: '小群' }],
-        });
-      }
       if (path.startsWith('/api/bridge/sessions?')) {
-        return jsonResponse({ sessions: [] });
+        return jsonResponse({
+          sessions: [{ sessionKey: 'fs_1', platform: 'feishu', chatId: 'oc_chat', displayName: '小群' }],
+        });
       }
       if (path.startsWith('/api/bridge/send-media')) {
         sendBodies.push(JSON.parse(String(init?.body)));
