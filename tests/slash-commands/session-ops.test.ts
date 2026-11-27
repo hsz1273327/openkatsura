@@ -198,6 +198,14 @@ describe("SessionOps bridge kind", () => {
     expect(engine.bridgeSessionManager.injectMessage).toHaveBeenCalledWith("k", "hi", { agentId: "a1" });
   });
 
+  it("freshCompact delegates desktop kind to engine.freshCompactDesktopSession", async () => {
+    engine.freshCompactDesktopSession = vi.fn(async () => ({ tokensBefore: 5000, tokensAfter: 1800, fresh: true }));
+    const ops = createSessionOps({ engine });
+    const res = await ops.freshCompact({ kind: "desktop", agentId: "a1", sessionPath: "/s/desk.jsonl" });
+    expect(engine.freshCompactDesktopSession).toHaveBeenCalledWith("/s/desk.jsonl");
+    expect(res).toEqual({ tokensBefore: 5000, tokensAfter: 1800, fresh: true });
+  });
+
   it("compact delegates to engine.compactBridgeSession and returns usage", async () => {
     // Phase 7：不再注入 [上下文已压缩] 占位，走真正的 SDK compact 路径
     engine.compactBridgeSession = vi.fn(async () => ({
@@ -242,10 +250,10 @@ describe("SessionOps bridge kind", () => {
     expect(r).toMatchObject({ tokensBefore: 11000, tokensAfter: 5000, fresh: true });
   });
 
-  it("freshCompact rejects desktop refs until desktop freshness is explicitly implemented", async () => {
+  it("freshCompact throws when engine.freshCompactDesktopSession is missing", async () => {
     const ops = createSessionOps({ engine });
     await expect(ops.freshCompact({ kind: "desktop", agentId: "a1", sessionPath: "/x" }))
-      .rejects.toThrow(/desktop.*not supported/);
+      .rejects.toThrow(/freshCompactDesktopSession not available/);
   });
 });
 

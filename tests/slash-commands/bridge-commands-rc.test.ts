@@ -340,4 +340,21 @@ describe("/compact redirects to attached desktop session", () => {
     expect((ctx.reply.mock.calls as any)[0][0]).toMatch(/正在压缩/);
     expect((ctx.reply.mock.calls as any)[1][0]).toMatch(/9000.*3200/);
   });
+
+  it("绑定桌面会话时 /fresh-compact 与桌面端统一行为，调 freshCompact({kind:'desktop'})", async () => {
+    const freshCompact = vi.fn(async () => ({ tokensBefore: 8000, tokensAfter: 2400, contextWindow: 128000, fresh: true }));
+    const { ctx, desktopPath } = ctxWithAttachedAndOps({
+      sessionOpsOverrides: { freshCompact },
+    });
+    const r: any = await cmd("fresh-compact").handler(ctx);
+    expect(r).toEqual({ silent: true });
+    expect(freshCompact).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "desktop",
+      agentId: "a1",
+      sessionPath: desktopPath,
+    }));
+    expect(ctx.reply).toHaveBeenCalledTimes(2);
+    expect((ctx.reply.mock.calls as any)[0][0]).toMatch(/正在 fresh-compact/);
+    expect((ctx.reply.mock.calls as any)[1][0]).toMatch(/8000.*2400/);
+  });
 });

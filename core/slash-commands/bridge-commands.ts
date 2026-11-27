@@ -221,15 +221,13 @@ export const bridgeCommands = [
     permission: "owner",
     source: "core",
     handler: async (ctx) => {
-      if (_isAttached(ctx)) {
-        return { reply: "接管桌面会话期间暂不支持 /fresh-compact，请先 /exitrc 退出接管" };
-      }
+      const ref = _resolveActiveSessionRef(ctx);
       try { await ctx.reply("（正在 fresh-compact：刷新提示词与记忆状态后压缩上下文，请稍候...）"); } catch { /* best-effort */ }
       try {
-        const result = await ctx.sessionOps.freshCompact(ctx.sessionRef);
+        const result = await ctx.sessionOps.freshCompact(ref);
         const before = result?.tokensBefore;
         const after = result?.tokensAfter;
-        const reason = result?.reason ? `，原因：${result.reason}` : "";
+        const reason = result?.reason || result?.noopReason ? `，原因：${result.reason || result.noopReason}` : "";
         const msg = (typeof before === "number" && typeof after === "number")
           ? `（fresh-compact 已完成：${before} → ${after} tokens${reason}）`
           : `（fresh-compact 已完成${reason}）`;

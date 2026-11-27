@@ -58,16 +58,19 @@ export function createSessionOps({ engine }) {
     },
 
     async freshCompact(ref) {
-      if (ref.kind !== "bridge") {
-        throw new Error("freshCompact for desktop kind not supported in phase 1");
+      if (ref.kind === "bridge") {
+        if (typeof engine.freshCompactBridgeSession !== "function") {
+          throw new Error("freshCompact: engine.freshCompactBridgeSession not available");
+        }
+        return await engine.freshCompactBridgeSession(ref.sessionKey, {
+          agentId: ref.agentId,
+          reason: "manual",
+        });
       }
-      if (typeof engine.freshCompactBridgeSession !== "function") {
-        throw new Error("freshCompact: engine.freshCompactBridgeSession not available");
+      if (typeof engine.freshCompactDesktopSession === "function") {
+        return await engine.freshCompactDesktopSession(ref.sessionPath);
       }
-      return await engine.freshCompactBridgeSession(ref.sessionKey, {
-        agentId: ref.agentId,
-        reason: "manual",
-      });
+      throw new Error("freshCompact: engine.freshCompactDesktopSession not available");
     },
   };
 }

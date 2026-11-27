@@ -2224,9 +2224,12 @@ export class HanaEngine {
    * 供 /compact 在 /rc 接管态下给出 token delta 反馈（Phase 2-E）
    */
   async compactDesktopSession(sessionPath) {
-    let session = this.getSessionByPath(sessionPath);
+    let session = this.getSessionByPath(sessionPath) || await this.ensureSessionLoaded(sessionPath);
     if (!session) throw new Error("compactDesktopSession: session not found");
     if (session.isCompacting) throw new Error("compactDesktopSession: already compacting");
+    if (this.isSessionStreaming(sessionPath)) {
+      throw new Error("compactDesktopSession: session is streaming, try again after the reply completes");
+    }
     let before = session.getContextUsage?.() ?? null;
     const compacted = await compactSessionWithCachePreservationRecoveringRuntime({
       session,
