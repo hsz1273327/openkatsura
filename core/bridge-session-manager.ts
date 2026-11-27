@@ -719,6 +719,56 @@ export class BridgeSessionManager {
   }
 
   /**
+   * Switch a Bridge channel's active session pointer to any existing standard
+   * session owned by the same agent (including desktop / CLI / TUI sessions).
+   * Rejects path escapes, missing files, or switching while streaming.
+   */
+  switchSessionForSessionKey({ sessionKey, sessionPath, agentId }: { sessionKey: string; sessionPath: string; agentId: string }) {
+    if (!sessionKey || typeof sessionKey !== "string") {
+      throw new Error("bridge switch: sessionKey is required");
+    }
+    if (!sessionPath || typeof sessionPath !== "string") {
+      throw new Error("bridge switch: sessionPath is required");
+    }
+    const agent = this._resolveAgent({ agentId }, "switchSessionForSessionKey");
+    if (this.isSessionStreaming(sessionKey)) {
+      throw new Error("bridge switch: session is currently streaming; wait for the reply to finish");
+    }
+
+    const sessionRoot = path.resolve(agent.sessionDir);
+    const resolvedTarget = path.isAbsolute(sessionPath)
+      ? path.resolve(sessionPath)
+      : path.resolve(sessionRoot, sessionPath);
+    if (!resolvedTarget.startsWith(sessionRoot + path.sep) || !resolvedTarget.endsWith(".jsonl")) {
+      throw new Error("bridge switch: target session must be a .jsonl file inside the agent's session directory");
+    }
+    if (!fs.existsSync(resolvedTarget)) {
+      throw new Error(`bridge switch: target session file not found: ${resolvedTarget}`);
+    }
+
+    const active = this._activeSessions.get(sessionKey);
+    if (active) {
+      try { active.dispose?.(); } catch {}
+      this._activeSessions.delete(sessionKey);
+      this._activeSessionRoles.delete(sessionKey);
+    }
+
+    const bridgeDir = path.join(agent.sessionDir, "bridge");
+    const index = this.readIndex(agent);
+    const previousRaw = index[sessionKey];
+    const { changed, file } = this._syncIndexEntry(index, sessionKey, previousRaw, {
+      bridgeDir,
+      sessionPath: resolvedTarget,
+      meta: null,
+      resetRoleBoundState: true,
+    });
+    if (changed) {
+      this.writeIndex(index, agent);
+    }
+    return { ok: true, sessionKey, sessionPath: resolvedTarget, file };
+  }
+
+  /**
    * 确保 sessionKey 对应的会话实体存在并返回其 sessionId（不存在则创建）。
    * 不建 agent session、不跑一轮：空聊天里第一条消息就是循环启动命令时用。
    */

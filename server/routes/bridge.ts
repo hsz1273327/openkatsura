@@ -479,6 +479,27 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
     return c.json({ ok: true });
   });
 
+  /** 切换 bridge 通道绑定的当前会话指针（可指向任意同 Agent 标准会话，含桌面/CLI 会话） */
+  route.post("/bridge/sessions/:sessionKey/switch", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const sessionKey = c.req.param("sessionKey");
+    const body = await safeJson(c);
+    const target = typeof body?.sessionPath === "string" && body.sessionPath.trim()
+      ? body.sessionPath.trim()
+      : (typeof body?.file === "string" && body.file.trim() ? body.file.trim() : "");
+    if (!target) {
+      return c.json({ ok: false, error: "sessionPath or file is required" }, 400);
+    }
+    const agent = resolveAgentStrict(engine, c);
+    try {
+      const result = engine.switchBridgeSession(sessionKey, target, agent.id);
+      return c.json(result);
+    } catch (err: any) {
+      return c.json({ ok: false, error: err?.message || String(err) }, 400);
+    }
+  });
+
   /** 公开给外部平台拉取的临时媒体 URL（由 MediaPublisher token 控制） */
   route.get("/bridge/media/:token", async (c) => {
     const token = c.req.param("token");

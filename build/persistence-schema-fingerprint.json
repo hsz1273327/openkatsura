@@ -657,7 +657,7 @@
     ],
     "version": 3
   },
-  "payloadFingerprint": "sha256:b17042e629e8b8cb2f8e2b39c0f56cb143411979142c4f3dcab3ce2bda503c12",
+  "payloadFingerprint": "sha256:fdb5481e4c7e87a83db61113739ac942268b222cf518616f5c752e269f99a204",
   "registry": [
     {
       "affectedByEpochMigration": true,
@@ -3073,8 +3073,8 @@
   "review": {
     "classification": "compatible",
     "compatibilityReason": "Externalized built-in plugins and removed mobile PWA",
-    "payloadFingerprint": "sha256:b17042e629e8b8cb2f8e2b39c0f56cb143411979142c4f3dcab3ce2bda503c12",
-    "reason": "Unify new Bridge sessions into standard agent.sessionDir with backward-compatible legacy bridge/ path resolution (#3)."
+    "payloadFingerprint": "sha256:fdb5481e4c7e87a83db61113739ac942268b222cf518616f5c752e269f99a204",
+    "reason": "Add BridgeSessionManager.switchSessionForSessionKey to let Bridge channels switch active session pointers across standard sessions (#3)."
   },
   "schemas": [
     {
@@ -3586,7 +3586,7 @@
       "contract": "bridge index, legacy session metadata, title, and vision sidecar readers",
       "kind": "runtime-contract",
       "module": "core/bridge-session-manager.ts",
-      "sourceHash": "sha256:076bf385bed176df1e5381be42af3c80302d8c3eda44e477550f0697a6461b3a",
+      "sourceHash": "sha256:8631c2ca337fc5ddd91db662cb7a24b4442288c685960e669eebeec2c52d0b3f",
       "storeId": "session-sidecars"
     },
     {

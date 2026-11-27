@@ -2130,6 +2130,9 @@ export class HanaEngine {
     const agent = agentId ? this.getAgent(agentId) : undefined;
     return this._bridge.writeIndex(i, agent);
   }
+  switchBridgeSession(sessionKey, sessionPath, agentId) {
+    return this._bridge.switchSessionForSessionKey({ sessionKey, sessionPath, agentId });
+  }
   async executeExternalMessage(p, sk, m, o) { return this._bridge.executeExternalMessage(p, sk, m, o); }
   injectBridgeMessage(sk, t) { return this._bridge.injectMessage(sk, t); }
   /** 对指定 bridge session 执行真正的上下文压缩；返回 { tokensBefore, tokensAfter, contextWindow } */
