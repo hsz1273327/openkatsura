@@ -124,10 +124,10 @@ describe('BridgeTab permission mode and dynamic plugin rendering', () => {
     render(<BridgeTab />);
 
     expect(document.body.querySelectorAll('[data-testid^="platform-"]').length).toBe(0);
-    expect(document.body.textContent).toContain('当前未启用任何社交平台插件');
+    expect(document.body.textContent).toContain('settings.bridge.noPluginsHint');
   });
 
-  it('renders arbitrary registered plugins strictly in registration order without hardcoded platforms', () => {
+  it('renders arbitrary registered plugins as Bridge-first tabs in registration order without hardcoded platforms', () => {
     const state = bridgeState();
     (state.status as { platforms: unknown[] }).platforms = [
       { id: 'synology-chat', displayName: 'Synology Chat', configSchema: [] },
@@ -138,8 +138,9 @@ describe('BridgeTab permission mode and dynamic plugin rendering', () => {
 
     render(<BridgeTab />);
 
-    const rendered = Array.from(document.body.querySelectorAll('[data-testid^="platform-"]'))
-      .map((el) => el.getAttribute('data-testid'));
-    expect(rendered).toEqual(['platform-synology-chat', 'platform-qq', 'platform-discord']);
+    const tabs = Array.from(document.body.querySelectorAll('[role="tab"]'))
+      .map((el) => el.getAttribute('data-bridge-tab'));
+    expect(tabs).toEqual(['synology-chat', 'qq', 'discord']);
+    expect(document.body.querySelector('[data-testid="platform-synology-chat"]')).not.toBeNull();
   });
 });

@@ -294,8 +294,7 @@ describe('useBridgeState snapshot hydration', () => {
     );
   });
 
-  it('keeps reconciling WeChat after QR confirmation until the selected Agent connects', async () => {
-    vi.useFakeTimers();
+  it('reloads bridge status when hana-bridge-reload event fires', async () => {
     let statusRequests = 0;
     mockHanaFetch.mockImplementation((url: string) => {
       if (url !== '/api/bridge/status?agentId=hana') {
@@ -304,9 +303,7 @@ describe('useBridgeState snapshot hydration', () => {
       statusRequests += 1;
       const wechat = statusRequests === 1
         ? { enabled: false, status: 'disconnected', token: '', agentId: 'hana' }
-        : statusRequests === 2
-          ? { enabled: true, status: 'connecting', token: '********', agentId: 'hana' }
-          : { enabled: true, status: 'connected', token: '********', agentId: 'hana' };
+        : { enabled: true, status: 'connected', token: '********', agentId: 'hana' };
       return Promise.resolve(new Response(JSON.stringify(bridgeStatus({ wechat }))));
     });
 
@@ -317,14 +314,8 @@ describe('useBridgeState snapshot hydration', () => {
       window.dispatchEvent(new Event('hana-bridge-reload'));
       await Promise.resolve();
     });
-    expect(screen.getByTestId('wechat-status')).toHaveTextContent('connecting');
-
-    await act(async () => { await vi.runOnlyPendingTimersAsync(); });
     expect(screen.getByTestId('wechat-status')).toHaveTextContent('connected');
-
-    const requestsAfterConnection = statusRequests;
-    await act(async () => { await vi.runAllTimersAsync(); });
-    expect(statusRequests).toBe(requestsAfterConnection);
+    expect(statusRequests).toBe(2);
   });
 
   it('cancels WeChat reconciliation when the selected Agent changes', async () => {

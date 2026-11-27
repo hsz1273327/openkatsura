@@ -1107,6 +1107,23 @@ export class BridgeManager {
     const isOwner = this._isOwner(platform, userId, agentId, { isGroup, aliases: identityAliases });
     const bridgeRole = isGroup ? "guest" : isOwner ? "owner" : "guest";
 
+    // ── 访客与群聊访问控制（默认关闭：仅允许 Owner 私聊） ──
+    if (bridgeRole === "guest" && !this._allowsGuests(platform, agentId)) {
+      if (!isGroup && userId) {
+        this._recordKnownDmSenderIfUnbound(platform, agentId, sessionKey, {
+          name: cleanBridgeMetadataString(displayName) || cleanBridgeMetadataString(senderName),
+          displayName: cleanBridgeMetadataString(displayName) || cleanBridgeMetadataString(senderName),
+          avatarUrl,
+          userId,
+          principalId,
+          chatId,
+          ...(qqPrincipal ? { qqPrincipal } : {}),
+        });
+      }
+      debugLog()?.log("bridge", `blocked ${isGroup ? "group" : "guest"} message on ${platform} (allowGuests=false)`);
+      return;
+    }
+
     // ── Slash 命令拦截（统一走 dispatcher）──
     // 纪律：
     //   1) 斜杠命令必须始终优先（任何 pending/attached 状态都不能夺走斜杠通道）
@@ -1218,6 +1235,33 @@ export class BridgeManager {
       return true;
     }
     return this.engine?.isBridgeSessionStreaming?.(sessionKey, bridgeRole ? { role: bridgeRole } : undefined) ?? false;
+  }
+
+  _allowsGuests(platform, agentId) {
+    const agent = this.engine?.getAgent?.(agentId);
+    const cfg = agent?.config?.bridge?.[platform];
+    return cfg?.allowGuests === true;
+  }
+
+  _recordKnownDmSenderIfUnbound(platform, agentId, sessionKey, meta) {
+    try {
+      const agent = this.engine?.getAgent?.(agentId);
+      const bsm = this.engine?.bridgeSessionManager;
+      if (!agent || !bsm?.readIndex || !bsm?.writeIndex) return;
+      const index = bsm.readIndex(agent) || {};
+      const existing = index[sessionKey];
+      if (existing && typeof existing === "object" && existing.userId === meta.userId) return;
+      const base = existing && typeof existing === "object" ? { ...existing } : (typeof existing === "string" ? { file: existing } : {});
+      index[sessionKey] = {
+        ...base,
+        ...meta,
+        platform,
+        chatType: "dm",
+      };
+      bsm.writeIndex(index, agent);
+    } catch {
+      // Best-effort discovery so user can pick Owner in settings even with allowGuests=false.
+    }
   }
 
   /**

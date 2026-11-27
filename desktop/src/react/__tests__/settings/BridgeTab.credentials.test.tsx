@@ -76,7 +76,7 @@ describe('BridgeTab dynamic schema credential custody', () => {
     });
   });
 
-  it('tests stored secrets for both QQ and arbitrary Synology Chat plugins without sending masked values', () => {
+  it('tests stored secrets for both QQ and arbitrary Synology Chat plugins across Bridge tabs without sending masked values', () => {
     const testPlatform = vi.fn();
     vi.mocked(useBridgeState).mockReturnValue(bridgeState({ testPlatform }) as never);
 
@@ -85,6 +85,7 @@ describe('BridgeTab dynamic schema credential custody', () => {
     fireEvent.click(screen.getByRole('button', { name: 'QQ: settings.bridge.test' }));
     expect(testPlatform).toHaveBeenCalledWith('qq', { appID: 'qq-app' }, true);
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Synology Chat' }));
     fireEvent.click(screen.getByRole('button', { name: 'Synology Chat: settings.bridge.test' }));
     expect(testPlatform).toHaveBeenCalledWith('synology-chat', { incomingUrl: 'https://nas.local/chat' }, true);
   });
@@ -95,6 +96,7 @@ describe('BridgeTab dynamic schema credential custody', () => {
 
     render(<BridgeTab />);
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Synology Chat' }));
     const secretInput = screen.getByLabelText('Bot Token') as HTMLInputElement;
     expect(secretInput.placeholder).toBe('settings.bridge.secretStoredPlaceholder');
     expect(secretInput.value).toBe('');
@@ -115,6 +117,7 @@ describe('BridgeTab dynamic schema credential custody', () => {
 
     render(<BridgeTab />);
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Synology Chat' }));
     const urlInput = screen.getByLabelText('Incoming URL') as HTMLInputElement;
     fireEvent.change(urlInput, { target: { value: 'https://nas.local/chat-v2' } });
     fireEvent.blur(urlInput);
@@ -135,10 +138,38 @@ describe('BridgeTab dynamic schema credential custody', () => {
 
     render(<BridgeTab />);
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Synology Chat' }));
     const toggle = screen.getByRole('switch', { name: 'Synology Chat: settings.bridge.connectionToggle' });
     fireEvent.click(toggle);
 
     expect(showToast).toHaveBeenCalledWith('settings.bridge.noCredentials', 'error');
     expect(saveBridgeConfig).not.toHaveBeenCalled();
+  });
+
+  it('hides guest AGENTS.public.md when allowGuests is off and reveals it when allowGuests is enabled', () => {
+    const saveBridgeConfig = vi.fn().mockResolvedValue(undefined);
+    const state = bridgeState({ saveBridgeConfig });
+    vi.mocked(useBridgeState).mockReturnValue(state as never);
+
+    const { rerender } = render(<BridgeTab />);
+
+    expect(screen.queryByText('settings.agent.publicAgentsMd')).toBeNull();
+
+    const guestToggle = screen.getByRole('switch', { name: 'QQ: settings.bridge.allowGuests' });
+    fireEvent.click(guestToggle);
+    expect(saveBridgeConfig).toHaveBeenCalledWith('qq', null, undefined, { allowGuests: true });
+
+    const enabledState = bridgeState({ saveBridgeConfig });
+    (enabledState.status as Record<string, unknown>).qq = {
+      appID: 'qq-app',
+      hasAppSecret: true,
+      enabled: true,
+      allowGuests: true,
+      status: 'connected',
+    };
+    vi.mocked(useBridgeState).mockReturnValue(enabledState as never);
+    rerender(<BridgeTab />);
+
+    expect(screen.getByText('settings.agent.publicAgentsMd')).toBeTruthy();
   });
 });

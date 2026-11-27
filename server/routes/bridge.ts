@@ -118,6 +118,7 @@ export function buildBridgeStatus(engine: any, manager: any, agent: any) {
     return {
       ...extraFields,
       enabled,
+      allowGuests: cfg?.allowGuests === true,
       status: enabled && configError ? "error" : live[plat]?.status || "disconnected",
       error: enabled && configError ? configError : live[plat]?.error || configError,
       agentId: agent.id,
@@ -230,7 +231,7 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
   /** 保存凭证 + 启停平台（写入 agent.config.bridge） */
   route.post("/bridge/config", async (c) => {
     const body = await safeJson(c);
-    const { platform, credentials, enabled } = body;
+    const { platform, credentials, enabled, allowGuests } = body;
     const scopeDenied = denyWithoutScope(c, "bridge.manage");
     if (scopeDenied) return scopeDenied;
     const secretKeys = bridgeSecretKeys(platform);
@@ -265,6 +266,7 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
       }
     }
     if (typeof enabled === "boolean") patch.enabled = enabled;
+    if (typeof allowGuests === "boolean") patch.allowGuests = allowGuests;
     if (typeof provider.normalizeConfig === "function") {
       try {
         patch = provider.normalizeConfig(patch, bridgeCfg);
@@ -277,21 +279,29 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
 
     const persistedPatch = agent.config?.bridge?.[platform] || patch;
 
-    // Start/stop
-    if (persistedPatch.enabled) {
-      const manager = await ensureBridgeManager();
-      if (!manager) return bridgeUnavailable(c, bridgeRef.getState?.() || {});
-      manager.startPlatformFromConfig(platform, persistedPatch, agentId);
-    } else {
-      resolveBridgeManager()?.stopPlatform(platform, agentId);
+    // Start/stop only when credentials or enabled state changed (toggling allowGuests does not need a reconnect)
+    const shouldReconcileConnection = Boolean(credentials) || typeof enabled === "boolean";
+    if (shouldReconcileConnection) {
+      if (persistedPatch.enabled) {
+        const manager = await ensureBridgeManager();
+        if (!manager) return bridgeUnavailable(c, bridgeRef.getState?.() || {});
+        manager.startPlatformFromConfig(platform, persistedPatch, agentId);
+      } else {
+        resolveBridgeManager()?.stopPlatform(platform, agentId);
+      }
     }
 
-    debugLog()?.log("api", `POST /api/bridge/config agent=${agentId} platform=${platform} enabled=${!!patch.enabled}`);
+    debugLog()?.log("api", `POST /api/bridge/config agent=${agentId} platform=${platform} enabled=${!!patch.enabled} allowGuests=${patch.allowGuests === true}`);
     recordSecurityAuditEvent(c, engine, {
       action: "settings.bridge.config.update",
       target: `bridge.${platform}`,
       secretFields,
-      metadata: { agentId, platform, enabled: typeof enabled === "boolean" ? enabled : null },
+      metadata: {
+        agentId,
+        platform,
+        enabled: typeof enabled === "boolean" ? enabled : null,
+        allowGuests: typeof allowGuests === "boolean" ? allowGuests : null,
+      },
     } as any);
     return c.json({ ok: true });
   });

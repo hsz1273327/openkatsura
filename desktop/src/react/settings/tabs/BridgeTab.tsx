@@ -7,7 +7,7 @@ import {
   type RegisteredBridgePlatform,
 } from './bridge/useBridgeState';
 import { BridgeAgentRow } from './bridge/BridgeAgentRow';
-import { BridgePermissionModeSelect, type BridgePermissionMode } from './bridge/BridgeWidgets';
+import { BridgePermissionModeSelect, BridgeStatusDot, type BridgePermissionMode } from './bridge/BridgeWidgets';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
 import { Toggle } from '@/ui';
@@ -47,10 +47,19 @@ function defaultFieldValue(platStatus: Record<string, unknown>, field: BridgeCon
 export function BridgeTab() {
   const b = useBridgeState();
   const [draftsByAgent, setDraftsByAgent] = useState<Record<string, PlatformDraftMap>>({});
+  const [activePlatformId, setActivePlatformId] = useState<string | null>(null);
   const snapshotBridge = useSettingsStore(s => s.settingsSnapshot.data?.preferences?.bridge);
 
   const agentKey = b.selectedAgentId || '__default__';
   const agentDrafts = draftsByAgent[agentKey] || {};
+  const registeredPlatforms = Array.isArray(b.status?.platforms) ? b.status.platforms : null;
+
+  useEffect(() => {
+    if (!registeredPlatforms || registeredPlatforms.length === 0) return;
+    if (!activePlatformId || !registeredPlatforms.some((p) => p.id === activePlatformId)) {
+      setActivePlatformId(registeredPlatforms[0].id);
+    }
+  }, [activePlatformId, registeredPlatforms]);
 
   // Clear dirty flags for a platform after a save completes cleanly
   const clearPlatformDrafts = (platId: string) => {
@@ -152,6 +161,8 @@ export function BridgeTab() {
       };
     });
 
+    const allowGuests = platStatus.allowGuests === true;
+
     return (
       <PlatformSection
         key={platId}
@@ -187,11 +198,31 @@ export function BridgeTab() {
         ownerUsers={b.status?.knownUsers?.[platId] || []}
         currentOwner={b.status?.owner?.[platId]}
         onOwnerChange={(userId) => b.setOwner(platId, userId)}
-      />
+      >
+        <SettingsRow
+          label={t('settings.bridge.allowGuests')}
+          hint={t('settings.bridge.allowGuestsDesc')}
+          control={
+            <Toggle
+              on={allowGuests}
+              ariaLabel={`${descriptor.displayName || platId}: ${t('settings.bridge.allowGuests')}`}
+              onChange={(on) => {
+                void b.saveBridgeConfig(platId, null, undefined, { allowGuests: on });
+              }}
+            />
+          }
+        />
+      </PlatformSection>
     );
   };
 
-  const registeredPlatforms = Array.isArray(b.status?.platforms) ? b.status.platforms : null;
+  const activeDescriptor = registeredPlatforms && registeredPlatforms.length > 0
+    ? (registeredPlatforms.find((p) => p.id === activePlatformId) || registeredPlatforms[0])
+    : null;
+  const activePlatformStatus = activeDescriptor
+    ? ((b.status?.[activeDescriptor.id] as Record<string, unknown> | undefined) || {})
+    : null;
+  const activeAllowsGuests = activePlatformStatus?.allowGuests === true;
 
   return (
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="bridge">
@@ -233,32 +264,6 @@ export function BridgeTab() {
         />
       </SettingsSection>
 
-      <SettingsSection title={t('settings.bridge.agentSettings')} surface="plain">
-        {/* BridgeAgentRow：tab 级 context，水平平铺头像+名字
-         * 未超宽时居中显示，超宽时横向滚动；selected 高亮对齐 AgentCardStack */}
-        <BridgeAgentRow
-          value={b.selectedAgentId}
-          onChange={b.setSelectedAgentId}
-        />
-      </SettingsSection>
-
-      {/* 对外意识：hint 在上、textarea 在下，直接作为 section body children（单 textarea 不套 row） */}
-      <SettingsSection title={t('settings.agent.publicAgentsMd')}>
-        <div className={styles['settings-section-inset']}>
-          <div className={styles['settings-section-hint']}>
-            {t('settings.agent.publicAgentsMdHint')}
-          </div>
-          <textarea
-            className={styles['settings-textarea']}
-            rows={6}
-            spellCheck={false}
-            value={b.publicAgentsMd}
-            onChange={(e) => b.setPublicAgentsMd(e.target.value)}
-            onBlur={b.savePublicAgentsMd}
-          />
-        </div>
-      </SettingsSection>
-
       {registeredPlatforms === null ? (
         <SettingsSection title={t('settings.tabs.bridge')}>
           <div className={styles['settings-section-inset']}>
@@ -271,12 +276,71 @@ export function BridgeTab() {
         <SettingsSection title={t('settings.tabs.bridge')}>
           <div className={styles['settings-section-inset']}>
             <div className={styles['settings-section-hint']}>
-              当前未启用任何社交平台插件。请前往「设置 → 插件」安装并启用所需平台（例如 QQ 机器人）。
+              {t('settings.bridge.noPluginsHint')}
             </div>
           </div>
         </SettingsSection>
       ) : (
-        registeredPlatforms.map((descriptor) => renderPluginSection(descriptor))
+        <>
+          <div
+            role="tablist"
+            aria-label={t('settings.tabs.bridge')}
+            className={styles['bridge-plugin-tabs']}
+          >
+            {registeredPlatforms.map((descriptor) => {
+              const isActive = activeDescriptor?.id === descriptor.id;
+              const platStatus = ((b.status?.[descriptor.id] as Record<string, unknown> | undefined) || {});
+              return (
+                <button
+                  key={descriptor.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  data-bridge-tab={descriptor.id}
+                  onClick={() => setActivePlatformId(descriptor.id)}
+                  className={`${styles['bridge-plugin-tab']}${isActive ? ` ${styles['bridge-plugin-tab-active']}` : ''}`}
+                >
+                  <BridgeStatusDot status={typeof platStatus.status === 'string' ? platStatus.status : undefined} />
+                  <span>{descriptor.displayName || descriptor.id}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {activeDescriptor && (
+            <div role="tabpanel" data-bridge-tabpanel={activeDescriptor.id}>
+              <SettingsSection title={t('settings.bridge.targetAgent')} surface="plain">
+                <div className={`${styles['settings-section-hint']} ${styles['bridge-target-agent-hint']}`}>
+                  {t('settings.bridge.targetAgentHint')}
+                </div>
+                <BridgeAgentRow
+                  value={b.selectedAgentId}
+                  onChange={b.setSelectedAgentId}
+                />
+              </SettingsSection>
+
+              {renderPluginSection(activeDescriptor)}
+
+              {activeAllowsGuests && (
+                <SettingsSection title={t('settings.agent.publicAgentsMd')}>
+                  <div className={styles['settings-section-inset']}>
+                    <div className={styles['settings-section-hint']}>
+                      {t('settings.agent.publicAgentsMdHint')}
+                    </div>
+                    <textarea
+                      className={styles['settings-textarea']}
+                      rows={6}
+                      spellCheck={false}
+                      value={b.publicAgentsMd}
+                      onChange={(e) => b.setPublicAgentsMd(e.target.value)}
+                      onBlur={b.savePublicAgentsMd}
+                    />
+                  </div>
+                </SettingsSection>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

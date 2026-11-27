@@ -68,7 +68,17 @@ function createMocks() {
 
   const engine: any = {
     getAgent: vi.fn().mockImplementation((id) => {
-      if (id === "hana") return { agentName: "TestAgent", config: { bridge: { telegram: { owner: "owner123" } } }, sessionDir: os.tmpdir() };
+      if (id === "hana") return {
+        agentName: "TestAgent",
+        config: {
+          bridge: {
+            telegram: { owner: "owner123", allowGuests: true },
+            feishu: { allowGuests: true },
+            qq: { allowGuests: true },
+          },
+        },
+        sessionDir: os.tmpdir(),
+      };
       return null;
     }),
     getBridgeReceiptEnabled: vi.fn().mockReturnValue(true),
@@ -121,6 +131,66 @@ describe("BridgeManager._handleMessage", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  describe("allowGuests guard (default owner-only)", () => {
+    it("blocks group and non-owner guest messages by default when allowGuests is not enabled", async () => {
+      const { bm, engine, hub } = createMocks();
+      const indexStore: Record<string, any> = {};
+      engine.bridgeSessionManager.readIndex = vi.fn(() => indexStore);
+      engine.bridgeSessionManager.writeIndex = vi.fn((next) => Object.assign(indexStore, next));
+      engine.getAgent = vi.fn((id) => id === "hana"
+        ? { agentName: "TestAgent", config: { bridge: { telegram: { owner: "owner123" } } }, sessionDir: os.tmpdir() }
+        : null);
+
+      await bm._handleMessage("telegram", {
+        sessionKey: "tg_group_g1@hana",
+        text: "hello group",
+        userId: "owner123",
+        chatId: "g1",
+        isGroup: true,
+        agentId: "hana",
+      });
+      await bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_stranger@hana",
+        text: "hello from stranger",
+        userId: "stranger99",
+        senderName: "Stranger",
+        chatId: "stranger99",
+        isGroup: false,
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(hub.send).not.toHaveBeenCalled();
+      expect(indexStore["tg_dm_stranger@hana"]).toMatchObject({
+        userId: "stranger99",
+        name: "Stranger",
+        platform: "telegram",
+        chatType: "dm",
+      });
+      expect(indexStore["tg_dm_stranger@hana"].file).toBeUndefined();
+    });
+
+    it("still allows owner DM when allowGuests is false", async () => {
+      const { bm, engine, hub } = createMocks();
+      engine.getAgent = vi.fn((id) => id === "hana"
+        ? { agentName: "TestAgent", config: { bridge: { telegram: { owner: "owner123", allowGuests: false } } }, sessionDir: os.tmpdir() }
+        : null);
+
+      await bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "owner ping",
+        userId: "owner123",
+        chatId: "owner123",
+        isGroup: false,
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(hub.send).toHaveBeenCalledOnce();
+    });
   });
 
   // ── Group messages ──
