@@ -523,10 +523,6 @@
     font-weight: 600;
 }
 
-.bridge-target-agent-hint {
-    margin-bottom: var(--space-8);
-}
-
 .shortcut-keycaps {
     display: inline-flex;
     align-items: center;

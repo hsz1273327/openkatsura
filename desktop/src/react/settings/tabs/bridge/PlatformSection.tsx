@@ -37,6 +37,8 @@ interface PlatformSectionProps {
   currentOwner?: string;
   onOwnerChange?: (userId: string) => void;
   onCredentialBlur?: () => void;
+  hideSectionHeader?: boolean;
+  headerRows?: React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -53,6 +55,8 @@ export function PlatformSection({
   onOwnerChange,
   onCredentialBlur,
   platform,
+  hideSectionHeader = false,
+  headerRows,
   children,
 }: PlatformSectionProps) {
   const lastFieldIndex = credentialFields.length - 1;
@@ -100,7 +104,18 @@ export function PlatformSection({
   );
 
   return (
-    <SettingsSection title={title} context={statusContext}>
+    <SettingsSection
+      title={hideSectionHeader ? undefined : title}
+      context={hideSectionHeader ? undefined : statusContext}
+    >
+      {hideSectionHeader && (
+        <SettingsRow
+          label={t('settings.bridge.connectionToggle')}
+          hint={hint}
+          control={statusContext}
+        />
+      )}
+      {headerRows}
       {credentialFields.map((field, idx) => {
         const isLast = idx === lastFieldIndex;
         const input = field.type === 'select' ? (
@@ -167,7 +182,7 @@ export function PlatformSection({
           <SettingsRow
             key={field.key}
             label={field.label}
-            hint={isLast && hint ? hint : undefined}
+            hint={!hideSectionHeader && isLast && hint ? hint : undefined}
             layout="stacked"
             control={input}
           />
@@ -175,7 +190,7 @@ export function PlatformSection({
       })}
 
       {/* 无凭据（如 WhatsApp）：只显示 hint */}
-      {credentialFields.length === 0 && hint && (
+      {!hideSectionHeader && credentialFields.length === 0 && hint && (
         <div style={{
           padding: 'var(--space-8) var(--space-16)',
           fontSize: '0.7rem',

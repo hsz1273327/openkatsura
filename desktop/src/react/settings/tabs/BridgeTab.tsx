@@ -6,11 +6,10 @@ import {
   type BridgeConfigFieldDescriptor,
   type RegisteredBridgePlatform,
 } from './bridge/useBridgeState';
-import { BridgeAgentRow } from './bridge/BridgeAgentRow';
 import { BridgePermissionModeSelect, BridgeStatusDot, type BridgePermissionMode } from './bridge/BridgeWidgets';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
-import { Toggle } from '@/ui';
+import { SelectWidget, Toggle } from '@/ui';
 import { useSettingsStore } from '../store';
 import styles from '../Settings.module.css';
 
@@ -49,6 +48,8 @@ export function BridgeTab() {
   const [draftsByAgent, setDraftsByAgent] = useState<Record<string, PlatformDraftMap>>({});
   const [activePlatformId, setActivePlatformId] = useState<string | null>(null);
   const snapshotBridge = useSettingsStore(s => s.settingsSnapshot.data?.preferences?.bridge);
+  const agents = useSettingsStore(s => s.agents);
+  const agentOptions = agents.map((agent) => ({ value: agent.id, label: agent.name }));
 
   const agentKey = b.selectedAgentId || '__default__';
   const agentDrafts = draftsByAgent[agentKey] || {};
@@ -168,6 +169,21 @@ export function BridgeTab() {
         key={platId}
         platform={platId}
         title={descriptor.displayName || platId}
+        hideSectionHeader
+        headerRows={
+          <SettingsRow
+            label={t('settings.bridge.targetAgent')}
+            hint={t('settings.bridge.targetAgentHint')}
+            control={
+              <SelectWidget
+                value={b.selectedAgentId || agentOptions[0]?.value || ''}
+                onChange={b.setSelectedAgentId}
+                options={agentOptions}
+                disabled={agentOptions.length === 0}
+              />
+            }
+          />
+        }
         status={platStatus as { status?: string; error?: string; enabled?: boolean }}
         credentialFields={credentialFields}
         onToggle={async (on) => {
@@ -323,16 +339,6 @@ export function BridgeTab() {
 
           {activeDescriptor && (
             <div role="tabpanel" data-bridge-tabpanel={activeDescriptor.id}>
-              <SettingsSection title={t('settings.bridge.targetAgent')} surface="plain">
-                <div className={`${styles['settings-section-hint']} ${styles['bridge-target-agent-hint']}`}>
-                  {t('settings.bridge.targetAgentHint')}
-                </div>
-                <BridgeAgentRow
-                  value={b.selectedAgentId}
-                  onChange={b.setSelectedAgentId}
-                />
-              </SettingsSection>
-
               {renderPluginSection(activeDescriptor)}
             </div>
           )}
