@@ -2130,8 +2130,89 @@ export class HanaEngine {
     const agent = agentId ? this.getAgent(agentId) : undefined;
     return this._bridge.writeIndex(i, agent);
   }
-  switchBridgeSession(sessionKey, sessionPath, agentId) {
-    return this._bridge.switchSessionForSessionKey({ sessionKey, sessionPath, agentId });
+  isDesktopSessionPath(sessionPath) {
+    if (!sessionPath || typeof sessionPath !== "string") return false;
+    const manifest = this._sessionManifestStore?.getByPath?.(sessionPath) ?? null;
+    if (manifest?.domain) return manifest.domain === "desktop";
+    return Boolean(this.getSessionByPath?.(sessionPath));
+  }
+  resolveBridgeDesktopSessionPath(sessionKey, agentId) {
+    if (!sessionKey) return null;
+    const attached = this.rcState?.getAttachment?.(sessionKey)?.desktopSessionPath || null;
+    if (attached) return attached;
+    const agent = agentId ? this.getAgent(agentId) : null;
+    if (!agent) return null;
+    const persistedPath = this._bridge.resolveSessionPathForSessionKey(sessionKey, agent);
+    if (!persistedPath) return null;
+    if (this.isDesktopSessionPath(persistedPath)) return persistedPath;
+    return null;
+  }
+  unbindBridgeSessionPointer(sessionKey, agentId, expectedPath = null) {
+    if (!sessionKey) return false;
+    const agent = agentId ? this.getAgent(agentId) : null;
+    if (!agent) return false;
+    const index = this._bridge.readIndex(agent);
+    const raw = index[sessionKey];
+    if (!raw) return false;
+    const entry = typeof raw === "string" ? { file: raw } : { ...raw };
+    if (!entry.file) return false;
+    if (expectedPath) {
+      const currentPath = this._bridge.resolveSessionPathForSessionKey(sessionKey, agent);
+      if (!currentPath || path.resolve(currentPath) !== path.resolve(expectedPath)) {
+        return false;
+      }
+    }
+    delete entry.file;
+    index[sessionKey] = entry;
+    this._bridge.writeIndex(index, agent);
+    return true;
+  }
+  switchBridgeSession(sessionKey, sessionPath, agentId, meta: any = {}) {
+    const result = this._bridge.switchSessionForSessionKey({ sessionKey, sessionPath, agentId });
+    const rcState = this.rcState;
+    if (rcState) {
+      const prior = rcState.getAttachment?.(sessionKey) ?? null;
+      const isDesktopTarget = this.isDesktopSessionPath(result.sessionPath);
+      if (isDesktopTarget) {
+        if (prior?.desktopSessionPath && path.resolve(prior.desktopSessionPath) !== path.resolve(result.sessionPath)) {
+          rcState.detach(sessionKey);
+          try {
+            this.emitEvent?.({
+              type: "bridge_rc_detached",
+              sessionKey,
+              sessionPath: prior.desktopSessionPath,
+            }, prior.desktopSessionPath);
+          } catch {}
+        }
+        const platformMatch = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
+        const platform = meta.platform || (platformMatch ? platformMatch[1] : "bridge");
+        rcState.attach(sessionKey, result.sessionPath, {
+          platform,
+          chatId: meta.chatId || null,
+          agentId,
+          messageThreadId: meta.messageThreadId || null,
+        });
+        try {
+          this.emitEvent?.({
+            type: "bridge_rc_attached",
+            sessionKey,
+            sessionPath: result.sessionPath,
+            title: meta.title || null,
+            platform,
+          }, result.sessionPath);
+        } catch {}
+      } else if (prior?.desktopSessionPath) {
+        rcState.detach(sessionKey);
+        try {
+          this.emitEvent?.({
+            type: "bridge_rc_detached",
+            sessionKey,
+            sessionPath: prior.desktopSessionPath,
+          }, prior.desktopSessionPath);
+        } catch {}
+      }
+    }
+    return result;
   }
   async executeExternalMessage(p, sk, m, o) { return this._bridge.executeExternalMessage(p, sk, m, o); }
   injectBridgeMessage(sk, t) { return this._bridge.injectMessage(sk, t); }

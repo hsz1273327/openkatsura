@@ -13,9 +13,8 @@ export const bridgeCommands = [
     source: "core",
     handler: async (ctx) => {
       // abort 返回值即权威答案：true = 成功中断流，false = 无活动流可中断
-      // 之前版本同时读 isStreaming 再判 && ok 是 TOCTOU + 冗余，已移除
-      // Phase 2-E：接管态下改中止桌面 session 的 stream 而非 bridge session
-      const ref = _redirectRefIfAttached(ctx);
+      // 统一解析当前会话指针（桌面会话或 bridge 会话）
+      const ref = _resolveActiveSessionRef(ctx);
       const ok = await ctx.sessionOps.abort(ref);
       if (ok) return { silent: true };
       return { reply: "已停止（当前无活动回复）" };
@@ -23,14 +22,29 @@ export const bridgeCommands = [
   },
   {
     name: "new",
-    description: "开启新会话，历史归档",
+    description: "开启新会话，原会话保留在历史中",
     scope: "session",
     permission: "owner",
     source: "core",
     handler: async (ctx) => {
-      // Phase 2-E：接管态下拒绝执行（/new 对桌面 session 语义模糊，可能误删桌面会话）
-      if (_isAttached(ctx)) {
-        return { reply: "接管桌面会话期间禁止使用 /new，请先 /exitrc 退出接管" };
+      // 若当前指针绑定/接管了桌面会话：安全解绑指针并退出接管（不破坏桌面会话），下条消息起新会话
+      const desktopPath = _resolveAttachedDesktopPath(ctx);
+      if (desktopPath && ctx.sessionRef?.kind === "bridge") {
+        const { sessionKey, agentId } = ctx.sessionRef;
+        const rcState = ctx.engine?.rcState;
+        const wasAttached = !!rcState?.getAttachment?.(sessionKey);
+        rcState?.reset?.(sessionKey);
+        if (wasAttached) {
+          try {
+            ctx.engine?.emitEvent?.({
+              type: "bridge_rc_detached",
+              sessionKey,
+              sessionPath: desktopPath,
+            }, desktopPath);
+          } catch {}
+        }
+        ctx.engine?.unbindBridgeSessionPointer?.(sessionKey, agentId, desktopPath);
+        return { reply: "已开启新会话，原会话保留在历史中" };
       }
       // rotate 合约保证返回 {status}，不做防御性 ?. 以便契约破坏时立刻暴露
       const res = await ctx.sessionOps.rotate(ctx.sessionRef);
@@ -47,9 +61,9 @@ export const bridgeCommands = [
     permission: "owner",
     source: "core",
     handler: async (ctx) => {
-      // Phase 2-E：接管态下拒绝（/reset 破坏性强，接管态下手滑会删掉桌面会话历史）
+      // 绑定桌面会话期间禁止破坏性删除，避免误删共享桌面会话历史
       if (_isAttached(ctx)) {
-        return { reply: "接管桌面会话期间禁止使用 /reset，请先 /exitrc 退出接管" };
+        return { reply: "当前绑定到桌面会话，禁止使用 /reset，请先 /new 或 /exitrc" };
       }
       // delete 合约同上，直接 res.status
       const res = await ctx.sessionOps.delete(ctx.sessionRef);
@@ -59,14 +73,14 @@ export const bridgeCommands = [
   },
   {
     name: "rc",
-    description: "接管桌面会话（远程遥控）",
+    aliases: ["switch"],
+    description: "切换/接管当前会话",
     scope: "session",
     permission: "owner",
     source: "core",
     handler: async (ctx) => {
-      // Phase 2-B：列出当前 agent 最近 10 个桌面 session，并设 pending-selection 等用户编号输入。
-      // 真正的接管动作（summary + attach）在 bridge-manager 的 pending-handler 里做，
-      // 因为用户输入的是"2"这种纯数字，不是 slash 命令，slash-dispatcher 不会触发。
+      // 通用 Bridge 会话切换命令：列出当前 agent 最近 10 个标准会话，设 pending-selection 等用户输入编号。
+      // 支持在任意时刻直接切换，无需先 /exitrc。
       if (ctx.sessionRef?.kind !== "bridge") {
         return { reply: "/rc 只能在 bridge 会话中使用" };
       }
@@ -76,26 +90,27 @@ export const bridgeCommands = [
       const rcState = ctx.engine?.rcState;
       if (!rcState) return { error: "rc 状态存储未初始化" };
 
-      // 已接管：提示先退出再切换（防止一脚踩两个 attachment）
-      if (rcState.isAttached(ctx.sessionRef.sessionKey)) {
-        return { reply: "当前已处于接管态，请先 /exitrc 再执行 /rc 切换" };
-      }
-
       const sessions = await listRecentAgentSessions(ctx.engine, ctx.sessionRef.agentId, { limit: 10 });
-      const availableSessions = sessions.filter(s => !rcState.isDesktopSessionAttached(s.path));
+      const currentSessionKey = ctx.sessionRef.sessionKey;
+      const availableSessions = sessions.filter((s) => {
+        const holder = rcState.getAttachedBridgeSessionKey?.(s.path);
+        return !holder || holder === currentSessionKey;
+      });
       if (availableSessions.length === 0) {
-        return { reply: "当前 agent 没有可接管的桌面会话" };
+        return { reply: "当前 agent 没有可切换的会话" };
       }
 
+      const currentAttachedPath = _resolveAttachedDesktopPath(ctx);
       const lines = availableSessions.map((s, index) => {
         const titleStr = s.title ? s.title : `未命名 (${_formatShortDate(s.modified)})`;
-        return `${index + 1}. ${titleStr}`;
+        const currentTag = currentAttachedPath && s.path === currentAttachedPath ? " [当前]" : "";
+        return `${index + 1}. ${titleStr}${currentTag}`;
       });
-      const promptText = "选择要接管的桌面会话（回复编号）：\n"
+      const promptText = "选择要切换的会话（回复编号）：\n"
         + lines.join("\n")
-        + "\n\n5 分钟内不选则自动取消。/exitrc 退出接管。";
+        + "\n\n5 分钟内不选则自动取消。/exitrc（或 /detach）退出接管。";
 
-      rcState.setPending(ctx.sessionRef.sessionKey, {
+      rcState.setPending(currentSessionKey, {
         type: "rc-select",
         promptText,
         options: availableSessions.map(s => ({ path: s.path, title: s.title })),
@@ -105,7 +120,8 @@ export const bridgeCommands = [
   },
   {
     name: "exitrc",
-    description: "退出桌面会话接管",
+    aliases: ["detach"],
+    description: "退出当前会话接管",
     scope: "session",
     permission: "owner",
     source: "core",
@@ -115,21 +131,26 @@ export const bridgeCommands = [
       }
       const rcState = ctx.engine?.rcState;
       if (!rcState) return { error: "rc 状态存储未初始化" };
-      const priorAttachment = rcState.getAttachment(ctx.sessionRef.sessionKey);
-      const wasAttached = !!priorAttachment;
-      const wasPending = rcState.isPending(ctx.sessionRef.sessionKey);
-      rcState.reset(ctx.sessionRef.sessionKey);
+      const { sessionKey, agentId } = ctx.sessionRef;
+      const priorAttachment = rcState.getAttachment(sessionKey);
+      const persistedDesktopPath = !priorAttachment
+        ? ctx.engine?.resolveBridgeDesktopSessionPath?.(sessionKey, agentId) ?? null
+        : null;
+      const targetPath = priorAttachment?.desktopSessionPath || persistedDesktopPath;
+      const wasAttached = !!targetPath;
+      const wasPending = rcState.isPending(sessionKey);
+      rcState.reset(sessionKey);
       if (!wasAttached && !wasPending) {
         return { reply: "当前未处于接管状态" };
       }
-      // Phase 2-D：广播 detached 让桌面 UI 撤横幅
-      if (wasAttached && priorAttachment?.desktopSessionPath) {
+      if (wasAttached && targetPath) {
+        ctx.engine?.unbindBridgeSessionPointer?.(sessionKey, agentId, targetPath);
         try {
           ctx.engine?.emitEvent?.({
             type: "bridge_rc_detached",
-            sessionKey: ctx.sessionRef.sessionKey,
-            sessionPath: priorAttachment.desktopSessionPath,
-          }, priorAttachment.desktopSessionPath);
+            sessionKey,
+            sessionPath: targetPath,
+          }, targetPath);
         } catch {}
       }
       return { reply: "已退出接管桌面会话" };
@@ -175,7 +196,7 @@ export const bridgeCommands = [
       // 让对方在社交平台看到"她在干活"的反馈，不用盯着一个沉默通道
       // 失败路径也要发一条给用户，否则压缩出错用户只会看到什么都没发生
       // Phase 2-E：接管态下 compact 的目标是桌面 session 的 context，不是 bridge 的
-      const ref = _redirectRefIfAttached(ctx);
+      const ref = _resolveActiveSessionRef(ctx);
       try { await ctx.reply("（正在压缩上下文，请稍候...）"); } catch {}
       try {
         const result = await ctx.sessionOps.compact(ref);
@@ -255,7 +276,8 @@ async function _handleLoopCommand(ctx) {
   const firstToken = args.split(/\s+/, 1)[0]?.toLowerCase() || "";
   const isStart = !!args && !LOOP_SUBCOMMANDS.has(firstToken);
   try {
-    const target = await controller.targetFromSessionRef(ctx.sessionRef, { ensure: isStart });
+    const activeRef = _resolveActiveSessionRef(ctx);
+    const target = await controller.targetFromSessionRef(activeRef, { ensure: isStart });
     if (!target) return { error: "无法定位当前会话（会话尚未建立或已失效）" };
     if (!args || firstToken === "status") {
       const rendered = _renderLoopStatus(controller.statusForTarget(target));
@@ -284,32 +306,41 @@ async function _handleLoopCommand(ctx) {
 }
 
 /**
- * 接管态检查：当前 bridge session 是否挂接了桌面 session。
+ * 解析当前 bridge sessionKey 所绑定的桌面会话路径（优先内存态 rcState，其次持久化指针）。
  * @private
  */
-function _isAttached(ctx) {
+function _resolveAttachedDesktopPath(ctx) {
+  if (ctx.sessionRef?.kind !== "bridge") return null;
+  const sessionKey = ctx.sessionRef.sessionKey;
+  if (!sessionKey) return null;
   const rcState = ctx.engine?.rcState;
-  const sessionKey = ctx.sessionRef?.sessionKey;
-  if (!rcState || !sessionKey) return false;
-  return rcState.isAttached(sessionKey);
+  const attached = rcState?.getAttachment?.(sessionKey)?.desktopSessionPath || null;
+  if (attached) return attached;
+  return ctx.engine?.resolveBridgeDesktopSessionPath?.(sessionKey, ctx.sessionRef.agentId) ?? null;
 }
 
 /**
- * 若处于接管态，把 bridge sessionRef 改写为指向桌面 session 的 desktop ref，
- * 让 sessionOps.{abort, compact} 的 desktop 分支执行在正确目标上。
- * 否则返回原 ref。
+ * 接管/绑定态检查：当前 bridge 频道是否指向一个桌面会话。
  * @private
  */
-function _redirectRefIfAttached(ctx) {
-  const rcState = ctx.engine?.rcState;
-  const sessionKey = ctx.sessionRef?.sessionKey;
-  if (!rcState || !sessionKey) return ctx.sessionRef;
-  const att = rcState.getAttachment(sessionKey);
-  if (!att) return ctx.sessionRef;
+function _isAttached(ctx) {
+  return !!_resolveAttachedDesktopPath(ctx);
+}
+
+/**
+ * 统一解析当前活跃会话引用：若 bridge 指针指向桌面会话，则返回对应的 desktop ref；
+ * 否则返回原 ref。所有通用命令（/stop、/compact、/loop、/apply）均走此入口。
+ * @private
+ */
+function _resolveActiveSessionRef(ctx) {
+  const desktopPath = _resolveAttachedDesktopPath(ctx);
+  if (!desktopPath) return ctx.sessionRef;
+  const sessionId = ctx.engine?.getSessionIdForPath?.(desktopPath) || undefined;
   return {
     kind: "desktop",
     agentId: ctx.sessionRef.agentId,
-    sessionPath: att.desktopSessionPath,
+    sessionPath: desktopPath,
+    ...(sessionId ? { sessionId } : {}),
   };
 }
 
@@ -349,11 +380,12 @@ async function _applyAutomationSuggestion(ctx) {
   const store = ctx.engine?.automationSuggestionStore || ctx.engine?.getAutomationSuggestionStore?.() || null;
   if (!store?.apply) return { error: "自动任务建议系统未初始化" };
 
-  const bridgeSessionKey = ctx.sessionRef?.kind === "bridge"
-    ? ctx.sessionRef.sessionKey
+  const activeRef = _resolveActiveSessionRef(ctx);
+  const sessionId = activeRef?.kind === "desktop"
+    ? activeRef.sessionId
     : null;
-  const sessionId = ctx.sessionRef?.kind === "desktop"
-    ? ctx.sessionRef.sessionId
+  const bridgeSessionKey = !sessionId && ctx.sessionRef?.kind === "bridge"
+    ? ctx.sessionRef.sessionKey
     : null;
   if (!bridgeSessionKey && !sessionId) {
     return { reply: "/apply 只能在当前会话中创建自动任务建议" };

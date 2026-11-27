@@ -1907,20 +1907,25 @@ export class BridgeManager {
         ...(qqPrincipal ? { qqPrincipal } : {}),
       };
 
-      // ── RC 接管态路由（Phase 2-C） ──
-      // attachment 存在 → 消息进桌面 session 而非 bridge session
-      // attachment 仅对 owner 生效（/rc 是 owner-only，guest 不会有 attachment，但 isOwner 防御检查一道）
+      // ── 统一会话指针路由（含 /rc 接管与持久化指针指向的桌面会话） ──
+      // 当 owner 频道的当前会话指针指向标准桌面会话时，统一走 SessionCoordinator 通道
+      // （避免与桌面端双写同一个 .jsonl，并保持桌面 UI 实时同步）。
       const rcState = this.engine.rcState;
       const rcAttachment = !isGroup && isOwner ? rcState?.getAttachment(sessionKey) : null;
-      if (rcAttachment) {
-        if (!(await this._desktopSessionStillExists(rcAttachment.desktopSessionPath))) {
+      const persistedDesktopPath = !isGroup && isOwner && !rcAttachment
+        ? this.engine.resolveBridgeDesktopSessionPath?.(sessionKey, agentId) ?? null
+        : null;
+      const attachedDesktopPath = rcAttachment?.desktopSessionPath || persistedDesktopPath;
+      if (attachedDesktopPath) {
+        if (!(await this._desktopSessionStillExists(attachedDesktopPath))) {
           rcState?.detach(sessionKey);
+          this.engine.unbindBridgeSessionPointer?.(sessionKey, agentId, attachedDesktopPath);
           try {
             this.engine.emitEvent?.({
               type: "bridge_rc_detached",
               sessionKey,
-              sessionPath: rcAttachment.desktopSessionPath,
-            }, rcAttachment.desktopSessionPath);
+              sessionPath: attachedDesktopPath,
+            }, attachedDesktopPath);
           } catch (err) {
             log.warn(`emit bridge_rc_detached failed: ${err?.message}`);
           }
@@ -1934,9 +1939,26 @@ export class BridgeManager {
           }
           return;
         }
+        // 若由持久化指针恢复（如重启后），同步回填 rcState 以便桌面 UI 显示横幅并支持镜像回传
+        if (!rcAttachment && rcState && !rcState.isDesktopSessionAttached?.(attachedDesktopPath)) {
+          try {
+            rcState.attach(sessionKey, attachedDesktopPath, {
+              platform,
+              chatId,
+              agentId,
+              messageThreadId,
+            });
+            this.engine.emitEvent?.({
+              type: "bridge_rc_attached",
+              sessionKey,
+              sessionPath: attachedDesktopPath,
+              platform,
+            }, attachedDesktopPath);
+          } catch {}
+        }
         await this._flushAttachedDesktopSession({
           sessionKey,
-          desktopSessionPath: rcAttachment.desktopSessionPath,
+          desktopSessionPath: attachedDesktopPath,
           platform,
           chatId,
           agentId,
@@ -2682,13 +2704,13 @@ export class BridgeManager {
   }
 
   _platformFromSessionKey(sessionKey) {
-    const match = /^([a-z]+)_/i.exec(sessionKey || "");
+    const match = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
     return match ? match[1] : "bridge";
   }
 
   _chatIdFromBridgeSessionKey(sessionKey) {
     const withoutAgent = String(sessionKey || "").split("@")[0] || "";
-    const match = /^[a-z]+_(?:dm|group)_(.+)$/i.exec(withoutAgent);
+    const match = /^[a-z0-9-]+_(?:dm|group)_(.+)$/i.exec(withoutAgent);
     return match ? match[1] : null;
   }
 

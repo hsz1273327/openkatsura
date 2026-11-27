@@ -25,10 +25,11 @@ function ctxBridge({ engine, rcAttached = false }) {
 describe("/rc command", () => {
   const c = cmd("rc");
 
-  it("declares owner permission and core source", () => {
+  it("declares owner permission, core source, and generic switch alias", () => {
     expect(c).toBeTruthy();
     expect(c.permission).toBe("owner");
     expect(c.source).toBe("core");
+    expect(c.aliases).toContain("switch");
   });
 
   it("rejects when sessionRef.kind is not bridge", async () => {
@@ -62,16 +63,24 @@ describe("/rc command", () => {
     expect(engine.rcState.isPending("tg_group_x@a1")).toBe(false);
   });
 
-  it("rejects when already attached (must /exitrc first)", async () => {
-    const ctx = ctxBridge({ rcAttached: true } as any);
+  it("allows direct switching when already attached and marks the current session", async () => {
+    const sessions = [
+      { path: "/fake.jsonl", agentId: "a1", modified: new Date(), title: "当前会话", messageCount: 5 },
+      { path: "/other.jsonl", agentId: "a1", modified: new Date(), title: "另一个会话", messageCount: 2 },
+    ];
+    const engine = makeEngine({ sessions });
+    const ctx = ctxBridge({ engine, rcAttached: true } as any);
     const r: any = await c.handler(ctx);
-    expect(r.reply).toMatch(/已处于接管态.*\/exitrc/);
+    expect(r.reply).toMatch(/选择要切换的会话/);
+    expect(r.reply).toContain("1. 当前会话 [当前]");
+    expect(r.reply).toContain("2. 另一个会话");
+    expect(engine.rcState.isPending("tg_dm_x@a1")).toBe(true);
   });
 
   it("replies 'no sessions' when agent has none", async () => {
     const engine = makeEngine({ sessions: [] });
     const r: any = await c.handler(ctxBridge({ engine }));
-    expect(r.reply).toMatch(/没有可接管的桌面会话/);
+    expect(r.reply).toMatch(/没有可切换的会话/);
     expect(engine.rcState.isPending("tg_dm_x@a1")).toBe(false);
   });
 
@@ -82,7 +91,7 @@ describe("/rc command", () => {
     ];
     const engine = makeEngine({ sessions });
     const r: any = await c.handler(ctxBridge({ engine }));
-    expect(r.reply).toMatch(/选择要接管/);
+    expect(r.reply).toMatch(/选择要切换的会话/);
     expect(r.reply).toContain("1. 架构讨论");
     expect(r.reply).toContain("2. 周报写作");
     expect(r.reply).toMatch(/\/exitrc/);
@@ -146,10 +155,11 @@ describe("/rc command", () => {
 describe("/exitrc command", () => {
   const c = cmd("exitrc");
 
-  it("declares owner permission and core source", () => {
+  it("declares owner permission, core source, and generic detach alias", () => {
     expect(c).toBeTruthy();
     expect(c.permission).toBe("owner");
     expect(c.source).toBe("core");
+    expect(c.aliases).toContain("detach");
   });
 
   it("rejects when sessionRef.kind is not bridge", async () => {
@@ -231,19 +241,51 @@ function ctxWithAttachedAndOps({ desktopPath = "/attached/s.jsonl", sessionOpsOv
   };
 }
 
-describe("/new /reset rejected during attachment", () => {
-  it("/new 接管态下拒绝并提示 /exitrc", async () => {
-    const { ctx } = ctxWithAttachedAndOps();
+describe("/new detaches cleanly and /reset stays guarded during attachment", () => {
+  it("/new 绑定桌面会话时安全解绑并开启新会话，不破坏原会话", async () => {
+    const { ctx, engine, desktopPath } = ctxWithAttachedAndOps();
+    (engine as any).unbindBridgeSessionPointer = vi.fn();
     const r: any = await cmd("new").handler(ctx);
-    expect(r.reply).toMatch(/接管桌面会话期间禁止.*\/exitrc/);
+    expect(r.reply).toMatch(/已开启新会话.*保留/);
+    expect(engine.rcState.isAttached("tg_dm_x@a1")).toBe(false);
+    expect(engine.emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "bridge_rc_detached",
+        sessionKey: "tg_dm_x@a1",
+        sessionPath: desktopPath,
+      }),
+      desktopPath,
+    );
+    expect((engine as any).unbindBridgeSessionPointer).toHaveBeenCalledWith("tg_dm_x@a1", "a1", desktopPath);
     expect(ctx.sessionOps.rotate).not.toHaveBeenCalled();
   });
 
-  it("/reset 接管态下拒绝并提示 /exitrc", async () => {
+  it("/reset 绑定桌面会话时拒绝并提示 /new 或 /exitrc", async () => {
     const { ctx } = ctxWithAttachedAndOps();
     const r: any = await cmd("reset").handler(ctx);
-    expect(r.reply).toMatch(/接管桌面会话期间禁止.*\/exitrc/);
+    expect(r.reply).toMatch(/禁止使用 \/reset.*\/exitrc/);
     expect(ctx.sessionOps.delete).not.toHaveBeenCalled();
+  });
+
+  it("/loop 绑定桌面会话时重定向到当前桌面会话", async () => {
+    const { ctx, engine, desktopPath } = ctxWithAttachedAndOps();
+    const targetFromSessionRef = vi.fn(async () => ({ kind: "desktop", sessionId: "sid-desk" }));
+    const start = vi.fn(async () => ({ status: "running" }));
+    (engine as any).loopController = { targetFromSessionRef, start };
+    (engine as any).getSessionIdForPath = vi.fn(() => "sid-desk");
+
+    const r: any = await cmd("loop").handler({ ...ctx, args: "持续巡检" });
+    expect(targetFromSessionRef).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "desktop",
+        agentId: "a1",
+        sessionPath: desktopPath,
+        sessionId: "sid-desk",
+      }),
+      { ensure: true },
+    );
+    expect(start).toHaveBeenCalledWith({ kind: "desktop", sessionId: "sid-desk" }, "持续巡检");
+    expect(r.reply).toMatch(/循环已启动/);
   });
 
   it("/new 未接管时正常执行", async () => {

@@ -96,6 +96,45 @@ describe("SessionOps bridge kind", () => {
     expect(fs.existsSync(path.join(bridgeDirFor("a1"), jsonl))).toBe(false);
   });
 
+  it("rotate on unified root session unbinds pointer without deleting or moving the standard session file", async () => {
+    const jsonl = "2026-11-27_unified-1.jsonl";
+    const unifiedPath = path.join(agentDir("a1"), jsonl);
+    fs.writeFileSync(unifiedPath, '{"role":"user"}\n');
+    writeIndex("a1", { "synology-chat_dm_u1@a1": { file: jsonl, name: "Carol" } });
+
+    const ops = createSessionOps({ engine });
+    const res = await ops.rotate({ kind: "bridge", sessionKey: "synology-chat_dm_u1@a1", agentId: "a1" });
+
+    expect(res).toEqual({ status: "rotated" });
+    expect(readIndex("a1")["synology-chat_dm_u1@a1"].file).toBeUndefined();
+    expect(readIndex("a1")["synology-chat_dm_u1@a1"].name).toBe("Carol");
+    expect(fs.existsSync(unifiedPath)).toBe(true);
+  });
+
+  it("delete removes unified bridge-owned session file, but preserves shared desktop session file", async () => {
+    const bridgeFile = "2026-11-27_bridge-only.jsonl";
+    const bridgePath = path.join(agentDir("a1"), bridgeFile);
+    fs.writeFileSync(bridgePath, '{"role":"user"}\n');
+    writeIndex("a1", { "qq_dm_u1@a1": { file: bridgeFile } });
+
+    const desktopFile = "2026-11-27_shared-desktop.jsonl";
+    const desktopPath = path.join(agentDir("a1"), desktopFile);
+    fs.writeFileSync(desktopPath, '{"role":"user"}\n');
+    writeIndex("a1", {
+      "qq_dm_u1@a1": { file: bridgeFile },
+      "qq_dm_u2@a1": { file: desktopFile },
+    });
+    engine.isDesktopSessionPath = vi.fn((p) => path.resolve(p) === path.resolve(desktopPath));
+
+    const ops = createSessionOps({ engine });
+    expect(await ops.delete({ kind: "bridge", sessionKey: "qq_dm_u1@a1", agentId: "a1" })).toEqual({ status: "deleted" });
+    expect(fs.existsSync(bridgePath)).toBe(false);
+
+    expect(await ops.delete({ kind: "bridge", sessionKey: "qq_dm_u2@a1", agentId: "a1" })).toEqual({ status: "deleted" });
+    expect(fs.existsSync(desktopPath)).toBe(true);
+    expect(readIndex("a1")["qq_dm_u2@a1"]).toBeUndefined();
+  });
+
   it("rotate on entry without file field returns {status:'no-history'} and preserves meta", async () => {
     writeIndex("a1", { "tg_dm_z@a1": { name: "NoFile" } });
     const ops = createSessionOps({ engine });

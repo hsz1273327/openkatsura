@@ -93,7 +93,7 @@ const switchLog = createModuleLogger("sessions/switch");
 const SESSION_SEARCH_QUERY_MAX_LENGTH = 512;
 
 function rcPlatformFromSessionKey(sessionKey) {
-  const match = /^([a-z]+)_/i.exec(sessionKey || "");
+  const match = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
   return match ? match[1] : "bridge";
 }
 

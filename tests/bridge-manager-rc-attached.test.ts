@@ -110,6 +110,33 @@ describe("BridgeManager RC attached-session routing", () => {
     expect(engine.ensureSessionLoaded).not.toHaveBeenCalled();
   });
 
+  it("persisted desktop pointer without in-memory rcState → routes to desktop session and hydrates rcState for any bridge plugin", async () => {
+    const { bm, adapter, engine, hub, rcState } = createMocks();
+    engine.getAgent = vi.fn((id) => id === "hana"
+      ? { id: "hana", agentName: "T", config: { bridge: { "synology-chat": { owner: "u42" } } }, sessionDir: os.tmpdir() }
+      : null);
+    engine.resolveBridgeDesktopSessionPath = vi.fn(() => "/path/to/persisted-desk.jsonl");
+    bm._platforms.set("synology-chat:hana", { adapter, status: "connected", agentId: "hana", platform: "synology-chat" });
+
+    bm._handleMessage("synology-chat", {
+      sessionKey: "synology-chat_dm_u42@hana",
+      text: "重启后继续聊",
+      userId: "u42",
+      chatId: "u42",
+      agentId: "hana",
+    });
+
+    await vi.advanceTimersByTimeAsync(2500);
+
+    expect(hub.send).toHaveBeenCalledWith("重启后继续聊", expect.objectContaining({
+      sessionPath: "/path/to/persisted-desk.jsonl",
+      uiContext: null,
+    }));
+    expect(rcState.getAttachment("synology-chat_dm_u42@hana")?.desktopSessionPath).toBe("/path/to/persisted-desk.jsonl");
+    expect(bm._platformFromSessionKey("synology-chat_dm_u42@hana")).toBe("synology-chat");
+    expect(bm._chatIdFromBridgeSessionKey("synology-chat_dm_u42@hana")).toBe("u42");
+  });
+
   it("non-owner message with attachment set → does NOT route (防御性 isOwner 检查)", async () => {
     const { bm, hub, engine, rcState } = createMocks();
     // 某种异常情况：attachment 存在但消息来自非 owner
