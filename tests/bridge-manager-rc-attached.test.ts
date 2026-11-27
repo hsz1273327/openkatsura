@@ -137,6 +137,44 @@ describe("BridgeManager RC attached-session routing", () => {
     expect(bm._chatIdFromBridgeSessionKey("synology-chat_dm_u42@hana")).toBe("u42");
   });
 
+  it("fresh owner DM without prior pointer → ensures standard SessionCoordinator session and routes through hub.send({ sessionPath })", async () => {
+    const { bm, engine, hub } = createMocks();
+    engine.ensureBridgeOwnerSession = vi.fn(async () => ({
+      sessionPath: "/path/to/new-standard-session.jsonl",
+      sessionId: "sess-std-1",
+      created: true,
+    }));
+
+    bm._handleMessage("telegram", {
+      sessionKey: "tg_dm_owner123@hana",
+      text: "你好，开始新对话",
+      userId: "owner123",
+      chatId: "owner123",
+      agentId: "hana",
+    });
+
+    await vi.advanceTimersByTimeAsync(2500);
+
+    expect(engine.ensureBridgeOwnerSession).toHaveBeenCalledWith(
+      "tg_dm_owner123@hana",
+      "hana",
+      expect.objectContaining({ platform: "telegram", chatId: "owner123" }),
+    );
+    expect(hub.send).toHaveBeenCalledWith("你好，开始新对话", expect.objectContaining({
+      sessionPath: "/path/to/new-standard-session.jsonl",
+      uiContext: null,
+    }));
+  });
+
+  it("_isChannelSessionStreaming checks active desktop session pointer as well as legacy bridge session", () => {
+    const { bm, engine } = createMocks();
+    engine.resolveBridgeDesktopSessionPath = vi.fn(() => "/path/to/active-desk.jsonl");
+    engine.isSessionStreaming = vi.fn((p) => p === "/path/to/active-desk.jsonl");
+    engine.isBridgeSessionStreaming = vi.fn(() => false);
+
+    expect(bm._isChannelSessionStreaming("qq_dm_u1@hana", "hana", "owner")).toBe(true);
+  });
+
   it("non-owner message with attachment set → does NOT route (防御性 isOwner 检查)", async () => {
     const { bm, hub, engine, rcState } = createMocks();
     // 某种异常情况：attachment 存在但消息来自非 owner

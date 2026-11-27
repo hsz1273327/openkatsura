@@ -1207,9 +1207,17 @@ export class BridgeManager {
     this._appendPendingAttachments(entry, pending.attachments, attachments);
     Object.assign(pending, { platform, chatId, senderName, displayName, avatarUrl, userId, principalId, qqPrincipal, isGroup, isOwner, bridgeRole, messageThreadId, replyContext });
 
-    const isActive = this.engine.isBridgeSessionStreaming(sessionKey, { role: bridgeRole });
+    const isActive = this._isChannelSessionStreaming(sessionKey, agentId, bridgeRole);
 
     this._schedulePendingFlush(sessionKey, isActive ? 1000 : 2000);
+  }
+
+  _isChannelSessionStreaming(sessionKey, agentId, bridgeRole = null) {
+    const desktopPath = this.engine?.resolveBridgeDesktopSessionPath?.(sessionKey, agentId) ?? null;
+    if (desktopPath && this.engine?.isSessionStreaming?.(desktopPath)) {
+      return true;
+    }
+    return this.engine?.isBridgeSessionStreaming?.(sessionKey, bridgeRole ? { role: bridgeRole } : undefined) ?? false;
   }
 
   /**
@@ -1907,17 +1915,32 @@ export class BridgeManager {
         ...(qqPrincipal ? { qqPrincipal } : {}),
       };
 
-      // ── 统一会话指针路由（含 /rc 接管与持久化指针指向的桌面会话） ──
-      // 当 owner 频道的当前会话指针指向标准桌面会话时，统一走 SessionCoordinator 通道
-      // （避免与桌面端双写同一个 .jsonl，并保持桌面 UI 实时同步）。
+      // ── 统一会话指针路由（owner 会话全部收归 SessionCoordinator） ──
+      // 1) 若已有内存态接管或持久化桌面会话指针 → 直接走 SessionCoordinator
+      // 2) 若 owner 频道尚未绑定会话（首次发消息 / /new / /exitrc 后）→ 通过 ensureBridgeOwnerSession
+      //    在 SessionCoordinator 中创建标准会话并绑定指针，桌面端列表与 /switch 立即可见且无双写
+      // 3) 历史遗留的 domain:"bridge" 会话与 guest/群聊仍保留原有隔离路径兼容
       const rcState = this.engine.rcState;
       const rcAttachment = !isGroup && isOwner ? rcState?.getAttachment(sessionKey) : null;
       const persistedDesktopPath = !isGroup && isOwner && !rcAttachment
         ? this.engine.resolveBridgeDesktopSessionPath?.(sessionKey, agentId) ?? null
         : null;
-      const attachedDesktopPath = rcAttachment?.desktopSessionPath || persistedDesktopPath;
+      let attachedDesktopPath = rcAttachment?.desktopSessionPath || persistedDesktopPath;
+      let freshlyCreatedDesktopSession = false;
+      if (!isGroup && isOwner && !attachedDesktopPath && typeof this.engine.ensureBridgeOwnerSession === "function") {
+        const ensured = await this.engine.ensureBridgeOwnerSession(sessionKey, agentId, {
+          platform,
+          chatId,
+          messageThreadId,
+          meta,
+        });
+        if (ensured?.sessionPath) {
+          attachedDesktopPath = ensured.sessionPath;
+          freshlyCreatedDesktopSession = ensured.created === true;
+        }
+      }
       if (attachedDesktopPath) {
-        if (!(await this._desktopSessionStillExists(attachedDesktopPath))) {
+        if (!freshlyCreatedDesktopSession && !(await this._desktopSessionStillExists(attachedDesktopPath))) {
           rcState?.detach(sessionKey);
           this.engine.unbindBridgeSessionPointer?.(sessionKey, agentId, attachedDesktopPath);
           try {
@@ -2102,7 +2125,7 @@ export class BridgeManager {
         : (pending.lines?.length ?? 0) > 0)
       : false;
     if (hasBufferedInbound) return { mode: "busy" };
-    if (this.engine?.isBridgeSessionStreaming?.(sessionKey)) return { mode: "busy" };
+    if (this._isChannelSessionStreaming(sessionKey, agentId)) return { mode: "busy" };
 
     const platform = this._platformFromSessionKey(sessionKey);
     const chatId = this._chatIdFromBridgeSessionKey(sessionKey);

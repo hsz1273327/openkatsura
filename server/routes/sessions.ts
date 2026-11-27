@@ -319,11 +319,6 @@ function resolveHistoryPageBounds(sourceMessages, { beforeId, limit, forceAll })
   return { total, startIdx, endIdx, hasMore: startIdx > 0 };
 }
 
-function isBridgeSessionPath(sessionPath) {
-  if (typeof sessionPath !== "string" || !sessionPath) return false;
-  return sessionPath.split(/[\\/]+/).includes("bridge");
-}
-
 /**
  * 读取会话文件的磁盘修订点（stat 签名，与 /api/sessions 列表投影同源同格式）。
  * stat 失败（请求竞态中文件被归档/删除）返回 null —— 显式的「修订点未知」，
@@ -1044,12 +1039,7 @@ export function createSessionsRoute(engine, hub = null) {
         entries = cached.entries;
       } else {
         const sourceMessages = await loadSessionHistoryMessages(engine, queryPath);
-        const sanitize = (value) => {
-          const withoutReminder = stripSessionReminderBlocks(value);
-          return isBridgeSessionPath(queryPath)
-            ? sanitizeBridgeVisibleText(withoutReminder)
-            : withoutReminder;
-        };
+        const sanitize = (value) => sanitizeBridgeVisibleText(stripSessionReminderBlocks(value));
         entries = collectFindableHistoryEntries(sourceMessages, sanitize);
         if (revision) {
           findEntriesCache.set(queryPath, { revision, entries });
@@ -1345,12 +1335,7 @@ export function createSessionsRoute(engine, hub = null) {
           }
         }
       }
-      const sanitizeVisibleContent = (value) => {
-        const withoutReminder = stripSessionReminderBlocks(value);
-        return isBridgeSessionPath(resolvedSessionPath)
-          ? sanitizeBridgeVisibleText(withoutReminder)
-          : withoutReminder;
-      };
+      const sanitizeVisibleContent = (value) => sanitizeBridgeVisibleText(stripSessionReminderBlocks(value));
 
       // 分页参数
       const beforeId = c.req.query("before") != null ? Number(c.req.query("before")) : null;

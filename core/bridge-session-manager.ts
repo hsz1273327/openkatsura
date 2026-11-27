@@ -723,7 +723,7 @@ export class BridgeSessionManager {
    * session owned by the same agent (including desktop / CLI / TUI sessions).
    * Rejects path escapes, missing files, or switching while streaming.
    */
-  switchSessionForSessionKey({ sessionKey, sessionPath, agentId }: { sessionKey: string; sessionPath: string; agentId: string }) {
+  switchSessionForSessionKey({ sessionKey, sessionPath, agentId, meta = null }: { sessionKey: string; sessionPath: string; agentId: string; meta?: Record<string, any> | null }) {
     if (!sessionKey || typeof sessionKey !== "string") {
       throw new Error("bridge switch: sessionKey is required");
     }
@@ -759,7 +759,7 @@ export class BridgeSessionManager {
     const { changed, file } = this._syncIndexEntry(index, sessionKey, previousRaw, {
       bridgeDir,
       sessionPath: resolvedTarget,
-      meta: null,
+      meta,
       resetRoleBoundState: true,
     });
     if (changed) {

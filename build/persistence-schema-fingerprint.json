@@ -657,7 +657,7 @@
     ],
     "version": 3
   },
-  "payloadFingerprint": "sha256:fdb5481e4c7e87a83db61113739ac942268b222cf518616f5c752e269f99a204",
+  "payloadFingerprint": "sha256:e3ce94fd8edccd61b784e4424466ad023343dc356c7ed2cdc86b05f1d55a9ba7",
   "registry": [
     {
       "affectedByEpochMigration": true,
@@ -3072,9 +3072,8 @@
   ],
   "review": {
     "classification": "compatible",
-    "compatibilityReason": "Externalized built-in plugins and removed mobile PWA",
-    "payloadFingerprint": "sha256:fdb5481e4c7e87a83db61113739ac942268b222cf518616f5c752e269f99a204",
-    "reason": "Add BridgeSessionManager.switchSessionForSessionKey to let Bridge channels switch active session pointers across standard sessions (#3)."
+    "compatibilityReason": "Allow optional meta passthrough in BridgeSessionManager.switchSessionForSessionKey when binding detached SessionCoordinator owner sessions",
+    "payloadFingerprint": "sha256:e3ce94fd8edccd61b784e4424466ad023343dc356c7ed2cdc86b05f1d55a9ba7"
   },
   "schemas": [
     {
@@ -3586,7 +3585,7 @@
       "contract": "bridge index, legacy session metadata, title, and vision sidecar readers",
       "kind": "runtime-contract",
       "module": "core/bridge-session-manager.ts",
-      "sourceHash": "sha256:8631c2ca337fc5ddd91db662cb7a24b4442288c685960e669eebeec2c52d0b3f",
+      "sourceHash": "sha256:c841246dcc293373e23f59e0181bee4efa59a96186a07548d67188408c0e83e0",
       "storeId": "session-sidecars"
     },
     {

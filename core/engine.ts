@@ -2167,8 +2167,49 @@ export class HanaEngine {
     this._bridge.writeIndex(index, agent);
     return true;
   }
+  async ensureBridgeOwnerSession(sessionKey, agentId, opts: any = {}) {
+    if (!sessionKey || !agentId) return null;
+    const existingDesktop = this.resolveBridgeDesktopSessionPath(sessionKey, agentId);
+    if (existingDesktop) {
+      return { sessionPath: existingDesktop, created: false };
+    }
+    const agent = this.getAgent(agentId);
+    if (!agent) return null;
+    // Preserve legacy domain:"bridge" sessions if an existing file is still bound on disk.
+    const existingPersisted = this._bridge.resolveSessionPathForSessionKey(sessionKey, agent);
+    if (existingPersisted && fs.existsSync(existingPersisted)) {
+      return null;
+    }
+    // Create a first-class standard session via SessionCoordinator without stealing desktop UI focus.
+    const created = await this.createDetachedSession({
+      agentId,
+      visibleInSessionList: true,
+    });
+    if (!created?.sessionPath) return null;
+    const platformMatch = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
+    const platform = opts.platform || (platformMatch ? platformMatch[1] : "bridge");
+    const indexMeta = {
+      ...(opts.meta || {}),
+      platform,
+      chatType: "dm",
+      role: "owner",
+      ...(opts.chatId ? { chatId: opts.chatId } : {}),
+    };
+    this.switchBridgeSession(sessionKey, created.sessionPath, agentId, {
+      platform,
+      chatId: opts.chatId || null,
+      messageThreadId: opts.messageThreadId || null,
+      indexMeta,
+    });
+    return { sessionPath: created.sessionPath, sessionId: created.sessionId || null, created: true };
+  }
   switchBridgeSession(sessionKey, sessionPath, agentId, meta: any = {}) {
-    const result = this._bridge.switchSessionForSessionKey({ sessionKey, sessionPath, agentId });
+    const result = this._bridge.switchSessionForSessionKey({
+      sessionKey,
+      sessionPath,
+      agentId,
+      meta: meta?.indexMeta || null,
+    });
     const rcState = this.rcState;
     if (rcState) {
       const prior = rcState.getAttachment?.(sessionKey) ?? null;
