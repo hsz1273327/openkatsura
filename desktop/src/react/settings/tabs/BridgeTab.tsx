@@ -212,6 +212,24 @@ export function BridgeTab() {
             />
           }
         />
+        {allowGuests && (
+          <div className={styles['settings-section-inset']}>
+            <div className={styles['settings-row-label']}>
+              {t('settings.agent.publicAgentsMd')}
+            </div>
+            <div className={styles['settings-section-hint']}>
+              {t('settings.agent.publicAgentsMdHint')}
+            </div>
+            <textarea
+              className={styles['settings-textarea']}
+              rows={6}
+              spellCheck={false}
+              value={b.publicAgentsMd}
+              onChange={(e) => b.setPublicAgentsMd(e.target.value)}
+              onBlur={b.savePublicAgentsMd}
+            />
+          </div>
+        )}
       </PlatformSection>
     );
   };
@@ -219,10 +237,6 @@ export function BridgeTab() {
   const activeDescriptor = registeredPlatforms && registeredPlatforms.length > 0
     ? (registeredPlatforms.find((p) => p.id === activePlatformId) || registeredPlatforms[0])
     : null;
-  const activePlatformStatus = activeDescriptor
-    ? ((b.status?.[activeDescriptor.id] as Record<string, unknown> | undefined) || {})
-    : null;
-  const activeAllowsGuests = activePlatformStatus?.allowGuests === true;
 
   return (
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="bridge">
@@ -320,24 +334,6 @@ export function BridgeTab() {
               </SettingsSection>
 
               {renderPluginSection(activeDescriptor)}
-
-              {activeAllowsGuests && (
-                <SettingsSection title={t('settings.agent.publicAgentsMd')}>
-                  <div className={styles['settings-section-inset']}>
-                    <div className={styles['settings-section-hint']}>
-                      {t('settings.agent.publicAgentsMdHint')}
-                    </div>
-                    <textarea
-                      className={styles['settings-textarea']}
-                      rows={6}
-                      spellCheck={false}
-                      value={b.publicAgentsMd}
-                      onChange={(e) => b.setPublicAgentsMd(e.target.value)}
-                      onBlur={b.savePublicAgentsMd}
-                    />
-                  </div>
-                </SettingsSection>
-              )}
             </div>
           )}
         </>
