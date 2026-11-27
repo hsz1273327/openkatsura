@@ -102,13 +102,12 @@ function _rotateBridge(engine, ref) {
   }
   const src = resolveBridgeSessionFilePath(agent.sessionDir, entry.file);
   if (src && fs.existsSync(src)) {
-    const resolvedSrc = path.resolve(src);
     // Legacy sessions under sessions/bridge/ are archived in-place;
     // unified sessions directly under agent.sessionDir stay intact in session history
     // and /new simply unbinds the Bridge channel's active session pointer.
-    if (resolvedSrc.startsWith(bridgeDir + path.sep)) {
+    if (path.resolve(src).startsWith(bridgeDir + path.sep)) {
       const archived = _archivedFilename(entry.file, Date.now());
-      fs.renameSync(resolvedSrc, path.join(bridgeDir, archived));
+      fs.renameSync(src, path.join(bridgeDir, archived));
     }
   }
   delete entry.file;
