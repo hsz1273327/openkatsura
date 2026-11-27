@@ -296,7 +296,7 @@ describe("BridgeSessionManager session identity by sessionKey", () => {
     const sessionId = await manager.ensureSessionForSessionKey("tg_dm_9@agent-a", agent);
 
     expect(sessionId).toBe("sess_created");
-    expect(sessionManagerCreateMock).toHaveBeenCalledWith(rootCwd, path.join(agent.sessionDir, "bridge", "owner"));
+    expect(sessionManagerCreateMock).toHaveBeenCalledWith(rootCwd, agent.sessionDir);
     // 不跑轮：不建 agent session
     expect(createAgentSessionMock).not.toHaveBeenCalled();
     const index = JSON.parse(fs.readFileSync(path.join(agent.sessionDir, "bridge", "bridge-sessions.json"), "utf8"));

@@ -657,7 +657,7 @@
     ],
     "version": 3
   },
-  "payloadFingerprint": "sha256:fd2c9506c7052755de304db2ed93dcbf31b61272d16126b3b4906e361f61877a",
+  "payloadFingerprint": "sha256:b17042e629e8b8cb2f8e2b39c0f56cb143411979142c4f3dcab3ce2bda503c12",
   "registry": [
     {
       "affectedByEpochMigration": true,
@@ -3073,8 +3073,8 @@
   "review": {
     "classification": "compatible",
     "compatibilityReason": "Externalized built-in plugins and removed mobile PWA",
-    "payloadFingerprint": "sha256:fd2c9506c7052755de304db2ed93dcbf31b61272d16126b3b4906e361f61877a",
-    "reason": "Switch desktop/main.cjs server launch to Electron bundled Node.js (ELECTRON_RUN_AS_NODE=1); no persistence format changes."
+    "payloadFingerprint": "sha256:b17042e629e8b8cb2f8e2b39c0f56cb143411979142c4f3dcab3ce2bda503c12",
+    "reason": "Unify new Bridge sessions into standard agent.sessionDir with backward-compatible legacy bridge/ path resolution (#3)."
   },
   "schemas": [
     {
@@ -3586,7 +3586,7 @@
       "contract": "bridge index, legacy session metadata, title, and vision sidecar readers",
       "kind": "runtime-contract",
       "module": "core/bridge-session-manager.ts",
-      "sourceHash": "sha256:7ed05febd0506adb3cdc38c86a652f1c47a4e1a499f9308a7e940faaae1297ef",
+      "sourceHash": "sha256:076bf385bed176df1e5381be42af3c80302d8c3eda44e477550f0697a6461b3a",
       "storeId": "session-sidecars"
     },
     {

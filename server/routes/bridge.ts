@@ -14,6 +14,7 @@ import { parseSessionKey, collectKnownUsers, resolveBridgeSessionIdentity } from
 import { isBridgeOwner, resolveBridgeOwnerUserId } from "../../lib/bridge/owner-policy.ts";
 import { collectBridgeMediaAllowedRoots, isInsideBridgeMediaRoot } from "../../lib/bridge/media-roots.ts";
 import { bridgeProviderRegistry } from "../../lib/bridge/bridge-provider-registry.ts";
+import { resolveBridgeSessionFilePath } from "../../core/bridge-session-manager.ts";
 import { createBridgeOutboundHttp } from "../../lib/bridge/outbound-http.ts";
 import { webSocketOptionsForUrl } from "../../lib/net/outbound-proxy.ts";
 import { sanitizeBridgeVisibleText } from "../../shared/bridge-visible-text.ts";
@@ -362,7 +363,6 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
   route.get("/bridge/sessions", withReadAgent(async (c, agent) => {
     const platform = c.req.query("platform"); // optional filter
     const index = engine.getBridgeIndex(agent.id);
-    const bridgeDir = path.join(agent.sessionDir, "bridge");
     const sessions = [];
 
     for (const [sessionKey, raw] of Object.entries(index) as [string, any][]) {
@@ -371,17 +371,19 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
       const file = entry.file;
       if (!file) continue;
 
-      // 解析 sessionKey → 平台 + 类型
-      const { platform: plat, chatType, chatId } = parseSessionKey(sessionKey);
+      // 优先使用绑定表显式元数据，历史条目兜底解析 sessionKey
+      const parsed = parseSessionKey(sessionKey);
+      const plat = entry.platform || parsed.platform;
+      const chatType = entry.chatType || parsed.chatType;
+      const chatId = entry.chatId || parsed.chatId;
 
       // 按平台过滤
       if (platform && plat !== platform) continue;
 
-      // 获取最后修改时间
+      // 统一解析会话路径（兼容标准 agent.sessionDir 与历史 sessions/bridge/）
+      const fp = resolveBridgeSessionFilePath(agent.sessionDir, file);
+      if (!fp) continue;
       let lastActive = null;
-      const fp = path.resolve(bridgeDir, file);
-      const bridgeRoot = path.resolve(bridgeDir);
-      if (!fp.startsWith(bridgeRoot + path.sep)) continue;
       try {
         const stat = fs.statSync(fp);
         lastActive = stat.mtimeMs;
@@ -413,11 +415,8 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
     const file = typeof raw === "string" ? raw : raw?.file;
     if (!file) return c.json({ error: "session not found", messages: [] });
 
-    const bridgeDir = path.join(agent.sessionDir, "bridge");
-    const fp = path.resolve(bridgeDir, file);
-
-    // 防止 path traversal
-    if (!fp.startsWith(path.resolve(bridgeDir) + path.sep)) {
+    const fp = resolveBridgeSessionFilePath(agent.sessionDir, file);
+    if (!fp) {
       return c.json({ error: "invalid session path", messages: [] });
     }
 
