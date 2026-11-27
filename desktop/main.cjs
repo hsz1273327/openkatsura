@@ -1238,7 +1238,7 @@ async function startServer() {
         if (disposition.failFast) {
           const err = new Error(
             `STALE_SERVER_UNCLEANED: residual OpenKatsura server (PID ${existingInfo.pid}) is still running and holds port ${Number.isInteger(stalePort) ? stalePort : "unknown"} (${verification.reason}). ` +
-            `Quit it from Task Manager (look for hana-server.exe) or restart the computer, then launch OpenKatsura again.`
+            `Quit it from Task Manager (look for OpenKatsura.exe) or restart the computer, then launch OpenKatsura again.`
           );
           err.code = "STALE_SERVER_UNCLEANED";
           throw err;
@@ -1737,33 +1737,26 @@ async function _spawnServerOnce(serverInfoPath, artifactBootContext) {
     });
   }
 
-  // 选择 server 启动方式
-  let serverBin, serverArgs, serverCwd;
+  // 选择 server 启动方式：开发与打包模式统一复用 Electron 自带 Node
+  // （ELECTRON_RUN_AS_NODE=1），无独立 Node 二进制，后台生命周期完全跟随桌面 App。
+  const serverBin = process.execPath;
+  let serverArgs, serverCwd;
+  serverEnv.ELECTRON_RUN_AS_NODE = "1";
   if (artifactBootContext) {
-    // 打包模式：从 HANA_HOME/artifacts 的版本化目录启动（首启已由
-    // resolvePackagedArtifactBoot 解压 seed；目录布局与旧 Resources/server 一致）
-    // macOS/Linux：hana-server 是 shell wrapper，内部调用 bootstrap.js，无需额外参数
-    // Windows：hana-server.exe 是裸 Node 二进制（改名），需要显式传入 bootstrap.js
+    // 打包模式：从 HANA_HOME/artifacts 的版本化目录启动
     const versionedServerRoot = artifactBootContext.serverRoot;
-    const bundledServer = path.join(versionedServerRoot, "hana-server");
-    const bin = process.platform === "win32" ? bundledServer + ".exe" : bundledServer;
     const entry = path.join(versionedServerRoot, "bundle", "index.js");
-    serverBin = bin;
     serverCwd = versionedServerRoot;
-    serverArgs = process.platform === "win32"
-      ? [path.join(versionedServerRoot, "bootstrap.js")]
-      : [];
+    serverArgs = [path.join(versionedServerRoot, "bootstrap.js")];
     serverEnv.HANA_ROOT = versionedServerRoot;
     serverEnv.HANA_SERVER_ENTRY = entry;
     // Desktop renderer starts in pending-new-session mode; chat session warmup
     // must not block the HTTP server readiness handshake.
     serverEnv.HANA_CREATE_STARTUP_SESSION = "0";
   } else {
-    // 开发模式：沿用 launch.js 传下来的独立 Node runtime 跑 source server，
-    // 让源码模式和 BUILD 文档保持同一 ABI 合同，避免本地 npm install 的
-    // native addon 被 Electron 自带 Node 误加载。
+    // 开发模式：同样以当前 Electron 自带 Node（Node 24 + 原生 TS 支持）运行 source server，
+    // 确保开发、测试与打包产物共享同一 ABI 与运行时契约。
     const devRoot = path.join(__dirname, "..");
-    serverBin = process.env.HANA_DEV_NODE_BIN || process.env.npm_node_execpath || "node";
     serverCwd = devRoot;
     serverArgs = [path.join(devRoot, "server", "bootstrap.ts")];
     serverEnv.HANA_ROOT = devRoot;
@@ -1774,7 +1767,6 @@ async function _spawnServerOnce(serverInfoPath, artifactBootContext) {
     serverEnv.HANA_SERVER_ENTRY = path.join(devRoot, "server", "main-full.ts");
     // Keep dev and packaged startup contracts identical.
     serverEnv.HANA_CREATE_STARTUP_SESSION = "0";
-    delete serverEnv.ELECTRON_RUN_AS_NODE;
   }
 
   // 删除旧 server-info.json
@@ -1815,6 +1807,7 @@ async function _spawnServerOnce(serverInfoPath, artifactBootContext) {
   }
 
   _lastServerSpawn = {
+    serverRoot: serverCwd,
     command: serverBin,
     args: serverArgs,
     launcher: launcherBin,
@@ -2052,10 +2045,10 @@ function createTray() {
  */
 function buildServerCrashDiagnostics() {
   // production 时 server 在 HANA_HOME/artifacts 的版本化目录（以最近一次
-  // spawn 的 command 所在目录为准），dev 时在 __dirname/../server/
+  // spawn 的 serverRoot 为准），dev 时在 __dirname/../server/
   const isPackaged = app.isPackaged;
   const serverDir = isPackaged
-    ? (_lastServerSpawn?.command ? path.dirname(_lastServerSpawn.command) : "(no spawn recorded)")
+    ? (_lastServerSpawn?.serverRoot || "(no spawn recorded)")
     : path.join(__dirname, "..", "server");
   const sqlitePath = path.join(serverDir, "node_modules", "better-sqlite3",
     "build", "Release", "better_sqlite3.node");
@@ -2087,16 +2080,12 @@ function buildServerCrashDiagnostics() {
     if (_lastServerSpawn.error) items.push(`Server spawn error: ${_lastServerSpawn.error}`);
   }
 
-  // Windows: 检查 server 二进制、手动调试 wrapper 和 PortableGit
+  // Windows: 检查 bootstrap.js 和 PortableGit
   if (process.platform === "win32" && isPackaged) {
-    const exePath = path.join(serverDir, "hana-server.exe");
-    const cmdPath = path.join(serverDir, "hana-server.cmd");
+    const bootstrapPath = path.join(serverDir, "bootstrap.js");
     const gitRoot = path.join(process.resourcesPath, "git");
-    items.push(`hana-server.exe exists: ${fs.existsSync(exePath)}`);
-    items.push(`hana-server.cmd exists (manual debug): ${fs.existsSync(cmdPath)}`);
+    items.push(`bootstrap.js exists: ${fs.existsSync(bootstrapPath)}`);
     items.push(`PortableGit dir exists: ${fs.existsSync(gitRoot)}`);
-    items.push(``);
-    items.push(`Manual debug: open cmd.exe, cd to "${serverDir}", run hana-server.cmd`);
   }
 
   items.push(buildGpuStartupDiagnostics({ hanakoHome, policy: gpuStartupPolicy, app }));

@@ -657,7 +657,7 @@
     ],
     "version": 3
   },
-  "payloadFingerprint": "sha256:3ff787ae893755b4fb716c7fd1dca106a56be1e685a189f393ded36bdc8861ad",
+  "payloadFingerprint": "sha256:fd2c9506c7052755de304db2ed93dcbf31b61272d16126b3b4906e361f61877a",
   "registry": [
     {
       "affectedByEpochMigration": true,
@@ -3073,7 +3073,8 @@
   "review": {
     "classification": "compatible",
     "compatibilityReason": "Externalized built-in plugins and removed mobile PWA",
-    "payloadFingerprint": "sha256:3ff787ae893755b4fb716c7fd1dca106a56be1e685a189f393ded36bdc8861ad"
+    "payloadFingerprint": "sha256:fd2c9506c7052755de304db2ed93dcbf31b61272d16126b3b4906e361f61877a",
+    "reason": "Switch desktop/main.cjs server launch to Electron bundled Node.js (ELECTRON_RUN_AS_NODE=1); no persistence format changes."
   },
   "schemas": [
     {
@@ -3270,7 +3271,7 @@
       "contract": "desktop window bounds, release announcement bookmark, and update cache version marker readers",
       "kind": "directory-contract",
       "module": "desktop/main.cjs",
-      "sourceHash": "sha256:0e051aa391189c3143ce89d817b9991015c3ddaec5e768d4c4bc16837f7b2211",
+      "sourceHash": "sha256:cc8b6a6fee46f9882a347ddd401c4be9cba6230dbaa0334e211cdac023fd54a7",
       "storeId": "desktop-window-version-state"
     },
     {

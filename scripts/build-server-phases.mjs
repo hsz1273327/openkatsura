@@ -19,7 +19,7 @@ import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
 import { execSync } from "child_process";
-import { builtinModules } from "module";
+import { builtinModules, createRequire } from "module";
 import { pathToFileURL } from "url";
 import ts from "typescript";
 import {
@@ -155,6 +155,91 @@ export function prepareNodeRuntime({
   }
 
   return { isWin, cachedNodeBin, cachedNpmCli, destNode, targetEnv, runWithTargetNode };
+}
+
+/**
+ * Prepares the packaged server build to run under the desktop app's bundled
+ * Electron Node.js runtime (ELECTRON_RUN_AS_NODE=1) instead of shipping a
+ * second standalone Node.js binary (~100MB).
+ *
+ * External dependencies are installed with the host npm, then V8-ABI-sensitive
+ * native addons (`better-sqlite3`) are rebuilt for the root package's pinned
+ * Electron version via `@electron/rebuild`. All build-time verification and
+ * native addon smoke checks execute under the local Electron binary in
+ * `ELECTRON_RUN_AS_NODE=1` mode.
+ */
+export function prepareElectronNodeRuntime({
+  rootDir,
+  platform,
+  arch,
+  outDir,
+  log = (msg) => console.log(msg),
+}) {
+  const isWin = platform === "win32";
+  const require = createRequire(import.meta.url);
+  const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf-8"));
+  const electronVersion = String(rootPkg.devDependencies?.electron || "").replace(/^[^\d]*/, "");
+  if (!electronVersion) {
+    throw new Error("[build-server] devDependencies.electron is missing from root package.json");
+  }
+  const electronBin = require("electron");
+  if (typeof electronBin !== "string" || !fs.existsSync(electronBin)) {
+    throw new Error(`[build-server] local Electron binary not found: ${String(electronBin)}`);
+  }
+
+  const electronEnv = {
+    ...process.env,
+    NODE_ENV: "production",
+    ELECTRON_RUN_AS_NODE: "1",
+  };
+
+  function runWithTargetNode(cmd, opts = {}) {
+    execSync(`"${electronBin}" ${cmd}`, {
+      cwd: outDir,
+      stdio: "inherit",
+      env: electronEnv,
+      ...opts,
+    });
+  }
+
+  function installExternalDepsWithNpm() {
+    const npmCmd = isWin ? "npm.cmd" : "npm";
+    execSync(`${npmCmd} install --omit=dev --no-audit --no-fund --ignore-scripts=false`, {
+      cwd: outDir,
+      stdio: "inherit",
+      env: { ...process.env, NODE_ENV: "production" },
+    });
+  }
+
+  function rebuildElectronNativeDeps(externalDepNames = []) {
+    const v8NativeDeps = ["better-sqlite3"].filter((name) => externalDepNames.includes(name));
+    if (v8NativeDeps.length === 0) return;
+    const rebuildCli = path.join(rootDir, "node_modules", "@electron", "rebuild", "lib", "cli.js");
+    if (!fs.existsSync(rebuildCli)) {
+      throw new Error(`[build-server] @electron/rebuild CLI not found at ${rebuildCli}`);
+    }
+    log(`[build-server] rebuilding native addon(s) for Electron ${electronVersion} (${arch}): ${v8NativeDeps.join(", ")}`);
+    execSync(
+      `"${process.execPath}" "${rebuildCli}" --version "${electronVersion}" --arch "${arch}" --module-dir "${outDir}" --only "${v8NativeDeps.join(",")}"`,
+      {
+        cwd: rootDir,
+        stdio: "inherit",
+        env: { ...process.env, NODE_ENV: "production" },
+      },
+    );
+  }
+
+  log(`[build-server] using Electron ${electronVersion} bundled Node.js runtime (no standalone node binary)`);
+
+  return {
+    isWin,
+    electronBin,
+    electronVersion,
+    targetEnv: electronEnv,
+    runWithTargetNode,
+    installExternalDepsWithNpm,
+    rebuildElectronNativeDeps,
+  };
 }
 
 // ── Bundle ────────────────────────────────────────────────────────────────
@@ -357,6 +442,8 @@ export async function resolveAndInstallExternalServerDeps({
   isWin,
   runWithTargetNode,
   cachedNpmCli,
+  installExternalDepsWithNpm,
+  rebuildElectronNativeDeps,
   extraPackageNames = [],
   pinnedTransitiveDeps = ["lru-cache"],
   log = (msg) => console.log(msg),
@@ -427,7 +514,14 @@ export async function resolveAndInstallExternalServerDeps({
   );
 
   log("[build-server] installing external dependencies...");
-  runWithTargetNode(`"${cachedNpmCli}" install --omit=dev --no-audit --no-fund --ignore-scripts=false`);
+  if (typeof installExternalDepsWithNpm === "function") {
+    installExternalDepsWithNpm();
+  } else {
+    runWithTargetNode(`"${cachedNpmCli}" install --omit=dev --no-audit --no-fund --ignore-scripts=false`);
+  }
+  if (typeof rebuildElectronNativeDeps === "function") {
+    rebuildElectronNativeDeps(Object.keys(externalPkg.dependencies));
+  }
   ensureNodePtySpawnHelperExecutable({ baseDir: outDir, platform, arch, isWin });
 
   // Verify every string Vite external actually resolved into node_modules.

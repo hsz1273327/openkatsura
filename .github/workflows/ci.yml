@@ -46,12 +46,11 @@ jobs:
       - name: Build renderer
         run: npm run build:renderer
 
-      # The tag-only Build workflow verifies the extracted Windows standalone
-      # package by launching its real hana-server.cmd and exercising exec_command.
-      # Keep that release boundary covered in ordinary CI too, using a throwaway
-      # signing key/keyset that exists only under RUNNER_TEMP. Production release
+      # Verify the packaged Windows server tree + signed seed kit using
+      # Electron's bundled Node.js runtime (ELECTRON_RUN_AS_NODE=1) and a
+      # throwaway signing key/keyset under RUNNER_TEMP. Production release
       # jobs still require the repository HANA_SIGN_KEY secret and pinned keyset.
-      - name: Prepare ephemeral signing key for Windows standalone smoke
+      - name: Prepare ephemeral signing key for Windows desktop server smoke
         if: runner.os == 'Windows'
         shell: bash
         run: |
@@ -66,21 +65,17 @@ jobs:
           echo "HANA_SIGN_KEY=$RUNNER_TEMP/hana-ci-sign-key.pem" >> "$GITHUB_ENV"
           echo "HANA_SIGN_KEYSET=$RUNNER_TEMP/hana-ci-keyset.json" >> "$GITHUB_ENV"
 
-      - name: Download MinGit for Windows standalone smoke
-        if: runner.os == 'Windows'
-        run: node scripts/download-mingit.js
-
-      - name: Build Windows server bundle for standalone smoke
+      - name: Build Windows desktop server bundle
         if: runner.os == 'Windows'
         run: node scripts/build-server.mjs win32 x64
 
-      - name: Build Windows standalone server archive in CI
+      - name: Verify Windows seed kit
         if: runner.os == 'Windows'
-        run: node scripts/build-standalone-server-artifact.mjs x64
+        run: node scripts/verify-seed-kit.mjs win32 x64
 
-      - name: Smoke-test packaged Windows standalone server
+      - name: Smoke-test packaged Windows desktop server under Electron Node
         if: runner.os == 'Windows'
-        run: node scripts/verify-standalone-server-artifact.mjs x64 --smoke
+        run: node scripts/smoke-desktop-server.mjs win32 x64
 
       - name: Run tests
         run: npm test

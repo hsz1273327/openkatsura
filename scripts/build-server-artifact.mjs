@@ -226,6 +226,10 @@ async function defaultSignMachOFiles(outDir, log, env = process.env) {
  */
 async function defaultSmokeTestNodeStartup(outDir, log) {
   const nodeBin = path.join(outDir, "node");
+  if (!fs.existsSync(nodeBin)) {
+    log("[build-server] seed: no standalone node binary in server tree (using Electron bundled Node.js); skipping standalone node smoke");
+    return;
+  }
   try {
     execFileSync(nodeBin, ["-e", "process.exit(0)"], { stdio: "pipe", timeout: 30_000 });
   } catch (err) {

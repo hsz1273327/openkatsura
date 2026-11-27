@@ -55,10 +55,9 @@ import {
   copyServerBootstrap,
   copyServerDataFiles,
   finalizeServerPackageJsonVersion,
-  prepareNodeRuntime,
+  prepareElectronNodeRuntime,
   pruneServerNodeModulesViaNft,
   resolveAndInstallExternalServerDeps,
-  writeServerWrapperScripts,
 } from "./build-server-phases.mjs";
 import {
   collectBundledPluginNftRoots,
@@ -82,8 +81,8 @@ console.log(`[build-server] Building for ${platform}-${arch}...`);
 fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 
-// ── 1. Node.js runtime ──
-const { isWin, cachedNpmCli, runWithTargetNode } = prepareNodeRuntime({
+// ── 1. Electron bundled Node.js runtime（不拷贝独立 node 二进制）──
+const { isWin, runWithTargetNode, installExternalDepsWithNpm, rebuildElectronNativeDeps } = prepareElectronNodeRuntime({
   rootDir: ROOT,
   platform,
   arch,
@@ -172,7 +171,8 @@ const { externalPkg, rootPkg } = await resolveAndInstallExternalServerDeps({
   arch,
   isWin,
   runWithTargetNode,
-  cachedNpmCli,
+  installExternalDepsWithNpm,
+  rebuildElectronNativeDeps,
   extraPackageNames: pluginPackageDeps,
 });
 
@@ -195,10 +195,7 @@ applyPlatformPackageTrim({ outDir, platform, arch });
 // fromRoot("package.json") 在运行时读取版本号
 finalizeServerPackageJsonVersion({ outDir, version: rootPkg.version });
 
-// ── 10. Wrapper 脚本 ──
-writeServerWrapperScripts({ outDir, isWin });
-
-// ── 11. server + renderer 树 → 一份签名 seed 归档（双 artifact 管线）──
+// ── 10. server + renderer 树 → 一份签名 seed 归档（双 artifact 管线）──
 // ⚠️ 顺序铁律：先签名，后装箱。Apple notary
 // 会递归解包 tar.gz 校验箱内每个 Mach-O，而 electron-builder 阶段的签名看
 // 不进归档内部；packDualKindSeed 在 packTree 之前对 server 树内 Mach-O 做

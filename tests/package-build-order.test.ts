@@ -45,38 +45,25 @@ describe("package build order", () => {
     );
   });
 
-  it("packages the Windows standalone archive only after the server tree and sandbox helper exist", () => {
+  it("builds Windows server tree and verifies seed kit before electron-builder", () => {
     const scripts = packageScripts();
     const distWin = scripts["dist:win"];
-    expectTextBefore("dist:win", distWin, "npm run build:windows-sandbox-helper", "npm run pack:server:standalone");
-    expectTextBefore("dist:win", distWin, "npm run build:server", "npm run pack:server:standalone");
-    expectTextBefore("dist:win", distWin, "npm run pack:server:standalone", "npm run verify:standalone:server");
-    expectTextBefore("dist:win", distWin, "npm run verify:standalone:server", "electron-builder --win nsis");
+    expectTextBefore("dist:win", distWin, "npm run build:windows-sandbox-helper", "npm run build:server");
+    expectTextBefore("dist:win", distWin, "npm run build:server", "npm run verify:seed-kit");
+    expectTextBefore("dist:win", distWin, "npm run verify:seed-kit", "electron-builder --win nsis");
 
     const workflow = fs.readFileSync(path.join(rootDir, ".github", "workflows", "build.yml"), "utf-8");
     expectTextBefore(
       "GitHub release workflow",
       workflow,
       "node scripts/build-server.mjs",
-      "node scripts/build-standalone-server-artifact.mjs",
+      "node scripts/smoke-desktop-server.mjs",
     );
     expectTextBefore(
       "GitHub release workflow",
       workflow,
-      "node scripts/build-windows-sandbox-helper.mjs",
-      "node scripts/build-standalone-server-artifact.mjs",
-    );
-    expectTextBefore(
-      "GitHub release workflow",
-      workflow,
-      "node scripts/verify-standalone-server-artifact.mjs",
+      "node scripts/smoke-desktop-server.mjs",
       "npx electron-builder --win nsis",
-    );
-    expectTextBefore(
-      "GitHub release workflow",
-      workflow,
-      "node scripts/build-standalone-server-artifact.mjs",
-      "node scripts/verify-standalone-server-artifact.mjs",
     );
   });
 });
