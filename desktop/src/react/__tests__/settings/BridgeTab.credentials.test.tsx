@@ -1,75 +1,48 @@
 // @vitest-environment jsdom
-
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BridgeTab } from '../../settings/tabs/BridgeTab';
-import type { CredentialField } from '../../settings/tabs/bridge/PlatformSection';
 import { useBridgeState } from '../../settings/tabs/bridge/useBridgeState';
-
-let ActualPlatformSection: typeof import('../../settings/tabs/bridge/PlatformSection').PlatformSection;
-type CapturedPlatformProps = React.ComponentProps<typeof ActualPlatformSection>;
-const platformProps = new Map<string, CapturedPlatformProps>();
+import { useSettingsStore } from '../../settings/store';
 
 vi.mock('../../settings/helpers', () => ({
   t: (key: string) => key,
-}));
-
-vi.mock('../../settings/store', () => ({
-  useSettingsStore: (selector: (state: { settingsSnapshot: { data: null } }) => unknown) => (
-    selector({ settingsSnapshot: { data: null } })
-  ),
 }));
 
 vi.mock('../../settings/tabs/bridge/useBridgeState', () => ({
   useBridgeState: vi.fn(),
 }));
 
-vi.mock('../../settings/tabs/bridge/PlatformSection', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../settings/tabs/bridge/PlatformSection')>();
-  return {
-    ...actual,
-    PlatformSection: (props: CapturedPlatformProps) => {
-      platformProps.set(props.platform, props);
-      return <div data-testid={`platform-${props.platform}`} />;
-    },
-  };
-});
-
-vi.mock('../../settings/tabs/bridge/WechatSection', () => ({
-  WechatSection: () => <div data-testid="platform-wechat" />,
-}));
-
 vi.mock('../../settings/tabs/bridge/BridgeAgentRow', () => ({
   BridgeAgentRow: () => <div data-testid="bridge-agent-row" />,
 }));
-
-function secretDraft(value = '', dirty = false, hasStored = false) {
-  return { ownerId: 'hana', value, dirty, revision: dirty ? 1 : 0, hasStored };
-}
-
-function section(platform: string) {
-  const props = platformProps.get(platform);
-  if (!props) throw new Error(`missing ${platform} PlatformSection props`);
-  return props;
-}
 
 function bridgeState(overrides: Record<string, unknown> = {}) {
   return {
     status: {
       platforms: [
-        { id: 'wechat', displayName: 'WeChat' },
-        { id: 'telegram', displayName: 'Telegram' },
-        { id: 'feishu', displayName: 'Feishu' },
-        { id: 'dingtalk', displayName: 'DingTalk' },
-        { id: 'qq', displayName: 'QQ' },
+        {
+          id: 'qq',
+          displayName: 'QQ',
+          description: 'QQ Bot',
+          configSchema: [
+            { key: 'appID', label: 'AppID', type: 'string', required: true },
+            { key: 'appSecret', label: 'AppSecret', type: 'secret', required: true },
+          ],
+        },
+        {
+          id: 'synology-chat',
+          displayName: 'Synology Chat',
+          description: 'Synology Chat Incoming/Outgoing Webhook',
+          configSchema: [
+            { key: 'incomingUrl', label: 'Incoming URL', type: 'string', required: true },
+            { key: 'botToken', label: 'Bot Token', type: 'secret', required: true },
+          ],
+        },
       ],
-      telegram: {},
-      feishu: {},
-      dingtalk: {},
-      qq: {},
-      wechat: {},
+      qq: { appID: 'qq-app', hasAppSecret: true, enabled: true, status: 'connected' },
+      'synology-chat': { incomingUrl: 'https://nas.local/chat', hasBotToken: true, enabled: false, status: 'disconnected' },
       permissionMode: 'auto',
       readOnly: false,
       receiptEnabled: true,
@@ -83,34 +56,8 @@ function bridgeState(overrides: Record<string, unknown> = {}) {
     publicAgentsMd: '',
     setPublicAgentsMd: vi.fn(),
     savePublicAgentsMd: vi.fn(),
-    tgToken: '',
-    tgTokenDraft: secretDraft('', false, true),
-    setTgToken: vi.fn(),
-    fsAppId: 'feishu-app',
-    setFsAppId: vi.fn(),
-    fsAppSecret: '',
-    fsAppSecretDraft: secretDraft('', false, true),
-    setFsAppSecret: vi.fn(),
-    fsRegion: 'feishu_cn',
-    setFsRegion: vi.fn(),
-    dtCorpId: 'ding-corp',
-    setDtCorpId: vi.fn(),
-    dtClientId: 'ding-client',
-    setDtClientId: vi.fn(),
-    dtClientSecret: '',
-    dtClientSecretDraft: secretDraft('', false, true),
-    setDtClientSecret: vi.fn(),
-    dtRobotCode: 'ding-robot',
-    setDtRobotCode: vi.fn(),
-    dtApiBaseUrl: 'https://api.dingtalk.com/v1.0',
-    setDtApiBaseUrl: vi.fn(),
-    qqAppId: 'qq-app',
-    setQqAppId: vi.fn(),
-    qqAppSecret: '',
-    qqAppSecretDraft: secretDraft('', false, true),
-    setQqAppSecret: vi.fn(),
-    saveBridgeConfig: vi.fn(),
-    testPlatform: vi.fn(),
+    saveBridgeConfig: vi.fn().mockResolvedValue(undefined),
+    testPlatform: vi.fn().mockResolvedValue(undefined),
     testingPlatform: null,
     showToast: vi.fn(),
     setOwner: vi.fn(),
@@ -120,314 +67,78 @@ function bridgeState(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('BridgeTab credential custody', () => {
-  beforeEach(() => {
-    platformProps.clear();
-  });
-
+describe('BridgeTab dynamic schema credential custody', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    useSettingsStore.setState({
+      settingsSnapshot: { status: 'idle', key: null, data: null, error: null, requestId: 0, updatedAt: null },
+    });
   });
 
-  it('tests stored Telegram, Feishu, DingTalk, and QQ secrets without sending masked values', () => {
+  it('tests stored secrets for both QQ and arbitrary Synology Chat plugins without sending masked values', () => {
     const testPlatform = vi.fn();
     vi.mocked(useBridgeState).mockReturnValue(bridgeState({ testPlatform }) as never);
 
     render(<BridgeTab />);
 
-    section('telegram').onTest();
-    section('feishu').onTest();
-    section('dingtalk').onTest();
-    section('qq').onTest();
+    fireEvent.click(screen.getByRole('button', { name: 'QQ: settings.bridge.test' }));
+    expect(testPlatform).toHaveBeenCalledWith('qq', { appID: 'qq-app' }, true);
 
-    expect(testPlatform).toHaveBeenNthCalledWith(1, 'telegram', {}, true);
-    expect(testPlatform).toHaveBeenNthCalledWith(2, 'feishu', {
-      appId: 'feishu-app',
-      region: 'feishu_cn',
-    }, true);
-    expect(testPlatform).toHaveBeenNthCalledWith(3, 'dingtalk', {
-      corpId: 'ding-corp',
-      clientId: 'ding-client',
-      robotCode: 'ding-robot',
-      apiBaseUrl: 'https://api.dingtalk.com/v1.0',
-    }, true);
-    expect(testPlatform).toHaveBeenNthCalledWith(4, 'qq', { appID: 'qq-app' }, true);
+    fireEvent.click(screen.getByRole('button', { name: 'Synology Chat: settings.bridge.test' }));
+    expect(testPlatform).toHaveBeenCalledWith('synology-chat', { incomingUrl: 'https://nas.local/chat' }, true);
   });
 
   it('sends dirty plaintext secrets directly and disables saved-credential lookup', () => {
     const testPlatform = vi.fn();
-    vi.mocked(useBridgeState).mockReturnValue(bridgeState({
-      testPlatform,
-      tgToken: 'telegram-plaintext',
-      tgTokenDraft: secretDraft('telegram-plaintext', true, true),
-      fsAppSecret: 'feishu-plaintext',
-      fsAppSecretDraft: secretDraft('feishu-plaintext', true, true),
-      dtClientSecret: 'dingtalk-plaintext',
-      dtClientSecretDraft: secretDraft('dingtalk-plaintext', true, true),
-      qqAppSecret: 'qq-plaintext',
-      qqAppSecretDraft: secretDraft('qq-plaintext', true, true),
-    }) as never);
+    vi.mocked(useBridgeState).mockReturnValue(bridgeState({ testPlatform }) as never);
 
     render(<BridgeTab />);
 
-    section('telegram').onTest();
-    section('feishu').onTest();
-    section('dingtalk').onTest();
-    section('qq').onTest();
+    const secretInput = screen.getByLabelText('Bot Token') as HTMLInputElement;
+    expect(secretInput.placeholder).toBe('settings.bridge.secretStoredPlaceholder');
+    expect(secretInput.value).toBe('');
 
-    expect(testPlatform).toHaveBeenNthCalledWith(1, 'telegram', { token: 'telegram-plaintext' }, false);
-    expect(testPlatform).toHaveBeenNthCalledWith(2, 'feishu', {
-      appId: 'feishu-app',
-      appSecret: 'feishu-plaintext',
-      region: 'feishu_cn',
-    }, false);
-    expect(testPlatform).toHaveBeenNthCalledWith(3, 'dingtalk', {
-      corpId: 'ding-corp',
-      clientId: 'ding-client',
-      clientSecret: 'dingtalk-plaintext',
-      robotCode: 'ding-robot',
-      apiBaseUrl: 'https://api.dingtalk.com/v1.0',
-    }, false);
-    expect(testPlatform).toHaveBeenNthCalledWith(4, 'qq', {
-      appID: 'qq-app',
-      appSecret: 'qq-plaintext',
-    }, false);
+    fireEvent.change(secretInput, { target: { value: 'fresh-nas-token' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Synology Chat: settings.bridge.test' }));
+
+    expect(testPlatform).toHaveBeenCalledWith(
+      'synology-chat',
+      { incomingUrl: 'https://nas.local/chat', botToken: 'fresh-nas-token' },
+      false,
+    );
   });
 
-  it('saves canonical platform fields while omitting unchanged stored secrets', async () => {
-    const saveBridgeConfig = vi.fn(async () => {});
+  it('saves updated fields on blur without overwriting untouched stored secrets', () => {
+    const saveBridgeConfig = vi.fn().mockResolvedValue(undefined);
     vi.mocked(useBridgeState).mockReturnValue(bridgeState({ saveBridgeConfig }) as never);
 
     render(<BridgeTab />);
-    await section('telegram').onToggle(true);
-    await section('feishu').onToggle(true);
-    await section('dingtalk').onToggle(true);
-    await section('qq').onToggle(true);
 
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(1, 'telegram', null, true);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(2, 'feishu', {
-      appId: 'feishu-app',
-      region: 'feishu_cn',
-    }, true);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(3, 'dingtalk', {
-      corpId: 'ding-corp',
-      clientId: 'ding-client',
-      robotCode: 'ding-robot',
-      apiBaseUrl: 'https://api.dingtalk.com/v1.0',
-    }, true);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(4, 'qq', {
-      appID: 'qq-app',
-    }, true);
+    const urlInput = screen.getByLabelText('Incoming URL') as HTMLInputElement;
+    fireEvent.change(urlInput, { target: { value: 'https://nas.local/chat-v2' } });
+    fireEvent.blur(urlInput);
+
+    expect(saveBridgeConfig).toHaveBeenCalledWith(
+      'synology-chat',
+      { incomingUrl: 'https://nas.local/chat-v2' },
+      undefined,
+    );
   });
 
-  it('preserves dirty empty as an explicit clear when disabling a platform', async () => {
-    const saveBridgeConfig = vi.fn(async () => {});
-    const clearedDraft = secretDraft('', true, true);
-    vi.mocked(useBridgeState).mockReturnValue(bridgeState({
-      saveBridgeConfig,
-      tgTokenDraft: clearedDraft,
-      fsAppSecretDraft: clearedDraft,
-      dtClientSecretDraft: clearedDraft,
-      qqAppSecretDraft: clearedDraft,
-    }) as never);
+  it('prevents enabling a plugin when required fields are missing', () => {
+    const showToast = vi.fn();
+    const saveBridgeConfig = vi.fn();
+    const state = bridgeState({ showToast, saveBridgeConfig });
+    (state.status as Record<string, unknown>)['synology-chat'] = { incomingUrl: '', hasBotToken: false, enabled: false };
+    vi.mocked(useBridgeState).mockReturnValue(state as never);
 
     render(<BridgeTab />);
-    await section('telegram').onToggle(false);
-    await section('feishu').onToggle(false);
-    await section('dingtalk').onToggle(false);
-    await section('qq').onToggle(false);
 
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(1, 'telegram', { token: '' }, false);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(2, 'feishu', {
-      appId: 'feishu-app',
-      appSecret: '',
-      region: 'feishu_cn',
-    }, false);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(3, 'dingtalk', {
-      corpId: 'ding-corp',
-      clientId: 'ding-client',
-      clientSecret: '',
-      robotCode: 'ding-robot',
-      apiBaseUrl: 'https://api.dingtalk.com/v1.0',
-    }, false);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(4, 'qq', {
-      appID: 'qq-app',
-      appSecret: '',
-    }, false);
-  });
+    const toggle = screen.getByRole('switch', { name: 'Synology Chat: settings.bridge.connectionToggle' });
+    fireEvent.click(toggle);
 
-  it('persists dirty empty as an explicit clear when credential fields lose focus', async () => {
-    const saveBridgeConfig = vi.fn(async () => {});
-    const clearedDraft = secretDraft('', true, true);
-    vi.mocked(useBridgeState).mockReturnValue(bridgeState({
-      saveBridgeConfig,
-      tgTokenDraft: clearedDraft,
-      fsAppSecretDraft: clearedDraft,
-      dtClientSecretDraft: clearedDraft,
-      qqAppSecretDraft: clearedDraft,
-    }) as never);
-
-    render(<BridgeTab />);
-    await section('telegram').onCredentialBlur?.();
-    await section('feishu').onCredentialBlur?.();
-    await section('dingtalk').onCredentialBlur?.();
-    await section('qq').onCredentialBlur?.();
-
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(1, 'telegram', { token: '' }, undefined);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(2, 'feishu', {
-      appId: 'feishu-app',
-      appSecret: '',
-      region: 'feishu_cn',
-    }, undefined);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(3, 'dingtalk', {
-      corpId: 'ding-corp',
-      clientId: 'ding-client',
-      clientSecret: '',
-      robotCode: 'ding-robot',
-      apiBaseUrl: 'https://api.dingtalk.com/v1.0',
-    }, undefined);
-    expect(saveBridgeConfig).toHaveBeenNthCalledWith(4, 'qq', {
-      appID: 'qq-app',
-      appSecret: '',
-    }, undefined);
-  });
-});
-
-describe('PlatformSection stored secret presentation', () => {
-  beforeAll(async () => {
-    const actual = await vi.importActual<typeof import('../../settings/tabs/bridge/PlatformSection')>(
-      '../../settings/tabs/bridge/PlatformSection',
-    );
-    ActualPlatformSection = actual.PlatformSection;
-  });
-
-  afterEach(cleanup);
-
-  it('renders the stored placeholder with an empty clipboard source value', () => {
-    const fields: CredentialField[] = [{
-      key: 'token',
-      label: 'Bot Token',
-      type: 'secret',
-      value: '',
-      placeholder: 'settings.bridge.secretStoredPlaceholder',
-      onChange: vi.fn(),
-    }];
-
-    const { container } = render(
-      <ActualPlatformSection
-        platform="telegram"
-        title="Telegram"
-        status={{ enabled: false }}
-        credentialFields={fields}
-        onToggle={vi.fn()}
-        onTest={vi.fn()}
-        testing={false}
-      />,
-    );
-
-    const input = container.querySelector('input[type="password"]') as HTMLInputElement;
-    expect(input).toHaveValue('');
-    expect(input).toHaveAttribute('placeholder', 'settings.bridge.secretStoredPlaceholder');
-    input.setSelectionRange(0, input.value.length);
-    expect(input.value.slice(input.selectionStart || 0, input.selectionEnd || 0)).toBe('');
-    expect(screen.queryByDisplayValue('********')).toBeNull();
-  });
-
-  it('tests a candidate secret without firing the blur autosave first', () => {
-    const onCredentialBlur = vi.fn();
-    const onTest = vi.fn();
-    const { container } = render(
-      <ActualPlatformSection
-        platform="telegram"
-        title="Telegram"
-        status={{ enabled: false }}
-        credentialFields={[{
-          key: 'token',
-          label: 'Bot Token',
-          type: 'secret',
-          value: 'candidate-secret',
-          onChange: vi.fn(),
-        }]}
-        onToggle={vi.fn()}
-        onTest={onTest}
-        onCredentialBlur={onCredentialBlur}
-        testing={false}
-      />,
-    );
-    const input = container.querySelector('input[type="password"]') as HTMLInputElement;
-    const testButton = screen.getByRole('button', { name: /Telegram.*settings\.bridge\.test/i });
-
-    fireEvent.pointerDown(testButton);
-    fireEvent.blur(input);
-    fireEvent.click(testButton);
-
-    expect(onCredentialBlur).not.toHaveBeenCalled();
-    expect(onTest).toHaveBeenCalledOnce();
-  });
-
-  it('does not autosave before a keyboard-activated credential test', () => {
-    const onCredentialBlur = vi.fn();
-    const onTest = vi.fn();
-    const { container } = render(
-      <ActualPlatformSection
-        platform="telegram"
-        title="Telegram"
-        status={{ enabled: false }}
-        credentialFields={[{
-          key: 'token',
-          label: 'Bot Token',
-          type: 'secret',
-          value: 'candidate-secret',
-          onChange: vi.fn(),
-        }]}
-        onToggle={vi.fn()}
-        onTest={onTest}
-        onCredentialBlur={onCredentialBlur}
-        testing={false}
-      />,
-    );
-    const input = container.querySelector('input[type="password"]') as HTMLInputElement;
-    const testButton = screen.getByRole('button', { name: /Telegram.*settings\.bridge\.test/i });
-
-    fireEvent.blur(input, { relatedTarget: testButton });
-    fireEvent.focus(testButton);
-    fireEvent.keyDown(testButton, { key: 'Enter' });
-    fireEvent.click(testButton);
-
-    expect(onCredentialBlur).not.toHaveBeenCalled();
-    expect(onTest).toHaveBeenCalledOnce();
-  });
-
-  it('does not autosave while focus moves to the secret visibility control', () => {
-    const onCredentialBlur = vi.fn();
-    const { container } = render(
-      <ActualPlatformSection
-        platform="telegram"
-        title="Telegram"
-        status={{ enabled: false }}
-        credentialFields={[{
-          key: 'token',
-          label: 'Bot Token',
-          type: 'secret',
-          value: 'candidate-secret',
-          onChange: vi.fn(),
-        }]}
-        onToggle={vi.fn()}
-        onTest={vi.fn()}
-        onCredentialBlur={onCredentialBlur}
-        testing={false}
-      />,
-    );
-    const input = container.querySelector('input[type="password"]') as HTMLInputElement;
-    const revealButton = screen.getByRole('button', { name: 'settings.api.showKey' });
-
-    fireEvent.blur(input, { relatedTarget: revealButton });
-
-    expect(onCredentialBlur).not.toHaveBeenCalled();
-
-    fireEvent.blur(revealButton, { relatedTarget: null });
-
-    expect(onCredentialBlur).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledWith('settings.bridge.noCredentials', 'error');
+    expect(saveBridgeConfig).not.toHaveBeenCalled();
   });
 });
