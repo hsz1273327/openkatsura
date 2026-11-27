@@ -37,7 +37,10 @@ CRCCheck off
 !macroend
 
 !macro hanakoFindRunningProcesses _RETURN
-  !insertmacro hanakoFindProcess HanaAgent.exe ${_RETURN}
+  !insertmacro hanakoFindProcess OpenKatsura.exe ${_RETURN}
+  ${If} ${_RETURN} != 0
+    !insertmacro hanakoFindProcess HanaAgent.exe ${_RETURN}
+  ${EndIf}
   ${If} ${_RETURN} != 0
     !insertmacro hanakoFindProcess Hanako.exe ${_RETURN}
   ${EndIf}
@@ -61,6 +64,7 @@ CRCCheck off
 !macroend
 
 !macro hanakoKillRunningProcesses _FORCE
+  !insertmacro hanakoKillProcess OpenKatsura.exe ${_FORCE}
   !insertmacro hanakoKillProcess HanaAgent.exe ${_FORCE}
   !insertmacro hanakoKillProcess Hanako.exe ${_FORCE}
   !insertmacro hanakoKillProcess hana-server.exe ${_FORCE}

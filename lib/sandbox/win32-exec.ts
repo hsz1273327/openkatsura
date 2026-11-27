@@ -650,8 +650,24 @@ function firstPathResult(commandName, env) {
   return null;
 }
 
+const ELECTRON_DESKTOP_EXECUTABLES = new Set([
+  "electron",
+  "electron.exe",
+  "openkatsura",
+  "openkatsura.exe",
+  "hanaagent",
+  "hanaagent.exe",
+  "hanako",
+  "hanako.exe",
+]);
+
 function isUsableCurrentNodeRuntime(executable) {
-  return !!executable && existsSync(executable);
+  if (!executable || !existsSync(executable)) return false;
+  // When the server runs inside Electron (ELECTRON_RUN_AS_NODE=1), process.execPath
+  // points to the Electron desktop executable (e.g. OpenKatsura.exe / electron.exe).
+  // Never expose a desktop GUI executable as a plain `node` runtime for user commands.
+  const base = basenameRuntimePath(executable).toLowerCase();
+  return !ELECTRON_DESKTOP_EXECUTABLES.has(base);
 }
 
 function findNodeRuntimeOnPath(commandName, args, env) {

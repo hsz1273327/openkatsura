@@ -27,8 +27,10 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { spawn } from "child_process";
+import { createRequire } from "module";
 import { fileURLToPath } from "url";
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 
@@ -37,8 +39,12 @@ export function resolveOpenServerDir({ rootDir, platform, arch }) {
   return path.join(rootDir, "dist-server-open", `${osDirName}-${arch}`);
 }
 
-function nodeBinPath(serverDir, isWin) {
-  return path.join(serverDir, isWin ? "hana-server.exe" : "node");
+function resolveElectronRuntimeBin() {
+  const electronBin = require("electron");
+  if (typeof electronBin !== "string" || !fs.existsSync(electronBin)) {
+    throw new Error(`[smoke-open-server] local Electron binary not found: ${String(electronBin)}`);
+  }
+  return electronBin;
 }
 
 function waitForFile(filePath, { timeoutMs, intervalMs = 200 }) {
@@ -85,11 +91,8 @@ async function terminateChild(child, { timeoutMs = 10_000 } = {}) {
   }
 }
 
-function spawnOpenServer({ serverDir, isWin, hanakoHome, extraEnv = {} }) {
-  const bin = nodeBinPath(serverDir, isWin);
-  if (!fs.existsSync(bin)) {
-    throw new Error(`[smoke-open-server] packaged Node runtime not found at ${bin} — run npm run build:server:open first`);
-  }
+function spawnOpenServer({ serverDir, hanakoHome, extraEnv = {} }) {
+  const bin = resolveElectronRuntimeBin();
   const bootstrapPath = path.join(serverDir, "bootstrap.js");
   if (!fs.existsSync(bootstrapPath)) {
     throw new Error(`[smoke-open-server] bootstrap.js not found at ${bootstrapPath}`);
@@ -101,6 +104,7 @@ function spawnOpenServer({ serverDir, isWin, hanakoHome, extraEnv = {} }) {
     cwd: serverDir,
     env: {
       ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
       HANA_ROOT: serverDir,
       HANA_SERVER_ENTRY: path.join(serverDir, "bundle", "index.js"),
       HANA_HOME: hanakoHome,

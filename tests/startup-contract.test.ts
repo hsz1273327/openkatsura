@@ -16,7 +16,7 @@ describe("local startup contract", () => {
     expect(pkg.scripts["start:dev"]).toContain("build:theme");
   });
 
-  it("dev Electron launcher passes a dedicated Node runtime to main process", () => {
+  it("desktop main launches server using Electron bundled Node runtime in both dev and packaged modes", () => {
     const launchJs = fs.readFileSync(path.join(ROOT, "scripts", "launch.js"), "utf-8");
     const devEnvJs = fs.readFileSync(path.join(ROOT, "scripts", "dev-env.js"), "utf-8");
     const mainCjs = fs.readFileSync(path.join(ROOT, "desktop", "main.cjs"), "utf-8");
@@ -24,7 +24,8 @@ describe("local startup contract", () => {
     expect(launchJs).toContain('from "./dev-env.js"');
     expect(launchJs).toContain("applyDevEnvironment(process.env)");
     expect(devEnvJs).toContain("HANA_DEV_NODE_BIN");
-    expect(mainCjs).toContain("HANA_DEV_NODE_BIN");
+    expect(mainCjs).toContain("const serverBin = process.execPath;");
+    expect(mainCjs).toContain('serverEnv.ELECTRON_RUN_AS_NODE = "1";');
 
     const env = applyDevEnvironment({}, { nodeBin: "/tmp/hana-node" });
     expect(env.HANA_DEV_NODE_BIN).toBe("/tmp/hana-node");

@@ -42,10 +42,9 @@ import {
   copyServerBootstrap,
   copyServerDataFiles,
   finalizeServerPackageJsonVersion,
-  prepareNodeRuntime,
+  prepareElectronNodeRuntime,
   pruneServerNodeModulesViaNft,
   resolveAndInstallExternalServerDeps,
-  writeServerWrapperScripts,
 } from "./build-server-phases.mjs";
 import { RUNTIME_ASSETS } from "./compute-cli-closure.mjs";
 import { readExportManifest } from "./lint-open-boundary.mjs";
@@ -143,8 +142,8 @@ async function main() {
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
 
-  // ── 1. Node.js runtime（与 full 相同的目标版本/校验和）──
-  const { isWin, cachedNpmCli, runWithTargetNode } = prepareNodeRuntime({
+  // ── 1. Electron bundled Node.js runtime（不拷贝独立 node 二进制）──
+  const { isWin, runWithTargetNode, installExternalDepsWithNpm, rebuildElectronNativeDeps } = prepareElectronNodeRuntime({
     rootDir: ROOT,
     platform,
     arch,
@@ -181,7 +180,8 @@ async function main() {
     arch,
     isWin,
     runWithTargetNode,
-    cachedNpmCli,
+    installExternalDepsWithNpm,
+    rebuildElectronNativeDeps,
     extraPackageNames: [],
   });
 
@@ -198,9 +198,6 @@ async function main() {
 
   // ── 9. 更新 package.json ──
   finalizeServerPackageJsonVersion({ outDir, version: rootPkg.version });
-
-  // ── 10. Wrapper 脚本 ──
-  writeServerWrapperScripts({ outDir, isWin });
 
   console.log("[build-server-open] Done!");
 }
