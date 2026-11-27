@@ -24,7 +24,7 @@ export default defineConfig({
       "dist-computer-use/**",
     ],
     testTimeout: 10_000,
-    setupFiles: ["./tests/setup-auto-updater.ts"],
+    setupFiles: ["./tests/setup-auto-updater.ts", "./tests/setup-win32-rm-retry.ts"],
     server: {
       deps: {
         inline: ["electron-updater", /desktop\/auto-updater/],
