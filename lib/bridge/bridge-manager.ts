@@ -2125,7 +2125,11 @@ export class BridgeManager {
         : (pending.lines?.length ?? 0) > 0)
       : false;
     if (hasBufferedInbound) return { mode: "busy" };
-    if (this._isChannelSessionStreaming(sessionKey, agentId)) return { mode: "busy" };
+    const activeDesktopPath = this.engine?.resolveBridgeDesktopSessionPath?.(sessionKey, agentId) ?? null;
+    if ((activeDesktopPath && this.engine?.isSessionStreaming?.(activeDesktopPath))
+      || this.engine?.isBridgeSessionStreaming?.(sessionKey)) {
+      return { mode: "busy" };
+    }
 
     const platform = this._platformFromSessionKey(sessionKey);
     const chatId = this._chatIdFromBridgeSessionKey(sessionKey);
