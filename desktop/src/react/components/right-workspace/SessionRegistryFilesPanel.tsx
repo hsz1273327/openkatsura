@@ -27,10 +27,11 @@ const RUBBER_BAND_MIN = 4;
 
 type SessionFileSortMode = 'time-desc' | 'name-asc' | 'name-desc' | 'type-asc';
 
-type BridgePlatform = 'feishu' | 'dingtalk' | 'telegram' | 'whatsapp' | 'qq' | 'wechat';
+type BridgePlatform = string;
 
 interface BridgeSessionSummary {
   sessionKey: string;
+  platform?: string;
   chatId: string;
   displayName?: string;
 }
@@ -49,9 +50,7 @@ type MenuState =
   | { type: 'sort'; items: ContextMenuItem[]; position: { x: number; y: number } }
   | { type: 'file'; file: FileRef; position: { x: number; y: number } };
 
-const BRIDGE_PLATFORMS: BridgePlatform[] = ['feishu', 'dingtalk', 'telegram', 'whatsapp', 'qq', 'wechat'];
-
-const BRIDGE_PLATFORM_LABEL_KEYS: Record<BridgePlatform, string> = {
+const BRIDGE_PLATFORM_LABEL_KEYS: Record<string, string> = {
   feishu: 'settings.bridge.feishu',
   dingtalk: 'settings.bridge.dingtalk',
   telegram: 'settings.bridge.telegram',
@@ -60,7 +59,7 @@ const BRIDGE_PLATFORM_LABEL_KEYS: Record<BridgePlatform, string> = {
   wechat: 'settings.bridge.wechat',
 };
 
-const BRIDGE_PLATFORM_FALLBACK_LABELS: Record<BridgePlatform, string> = {
+const BRIDGE_PLATFORM_FALLBACK_LABELS: Record<string, string> = {
   feishu: 'Feishu',
   dingtalk: 'DingTalk',
   telegram: 'Telegram',
@@ -479,23 +478,22 @@ export function SessionRegistryFilesPanel() {
     try {
       const targets: BridgeSendTarget[] = [];
       await Promise.all(bridgeAgents.map(async agent => {
-        await Promise.all(BRIDGE_PLATFORMS.map(async platform => {
-          const res = await hanaFetch(`/api/bridge/sessions?platform=${encodeURIComponent(platform)}&agentId=${encodeURIComponent(agent.id)}`);
-          const data = await res.json().catch(() => ({ sessions: [] }));
-          const sessions = Array.isArray(data.sessions) ? data.sessions as BridgeSessionSummary[] : [];
-          for (const session of sessions) {
-            if (!session?.chatId) continue;
-            targets.push({
-              agentId: agent.id,
-              agentName: agent.name,
-              platform,
-              platformLabel: bridgePlatformLabel(platform),
-              sessionKey: session.sessionKey,
-              chatId: session.chatId,
-              displayName: session.displayName,
-            });
-          }
-        }));
+        const res = await hanaFetch(`/api/bridge/sessions?agentId=${encodeURIComponent(agent.id)}`);
+        const data = await res.json().catch(() => ({ sessions: [] }));
+        const sessions = Array.isArray(data.sessions) ? data.sessions as BridgeSessionSummary[] : [];
+        for (const session of sessions) {
+          if (!session?.chatId) continue;
+          const platform = session.platform || 'bridge';
+          targets.push({
+            agentId: agent.id,
+            agentName: agent.name,
+            platform,
+            platformLabel: bridgePlatformLabel(platform),
+            sessionKey: session.sessionKey,
+            chatId: session.chatId,
+            displayName: session.displayName,
+          });
+        }
       }));
       if (bridgeLoadSeqRef.current !== seq) return;
       setBridgeTargets(targets);

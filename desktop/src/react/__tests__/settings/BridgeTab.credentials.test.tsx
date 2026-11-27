@@ -58,6 +58,13 @@ function section(platform: string) {
 function bridgeState(overrides: Record<string, unknown> = {}) {
   return {
     status: {
+      platforms: [
+        { id: 'wechat', displayName: 'WeChat' },
+        { id: 'telegram', displayName: 'Telegram' },
+        { id: 'feishu', displayName: 'Feishu' },
+        { id: 'dingtalk', displayName: 'DingTalk' },
+        { id: 'qq', displayName: 'QQ' },
+      ],
       telegram: {},
       feishu: {},
       dingtalk: {},

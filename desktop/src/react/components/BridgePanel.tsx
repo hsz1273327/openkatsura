@@ -8,10 +8,7 @@ import { renderMarkdown } from '../utils/markdown';
 import { AgentAvatar, resolveAgentDisplayInfo } from '../utils/agent-display';
 import { displayInitial } from '../utils/grapheme';
 import {
-  BRIDGE_PANEL_PLATFORMS,
   bridgePlatformLabel,
-  isBridgePlatform,
-  type BridgePlatform,
 } from '../utils/bridge-platforms';
 import { openSettingsModal } from '../stores/settings-modal-actions';
 import { loadMessages } from '../stores/session-actions';
@@ -24,6 +21,7 @@ import chatStyles from './chat/Chat.module.css';
 
 interface BridgeSession {
   sessionKey: string;
+  platform?: string;
   chatId: string;
   sessionPath?: string;
   displayName?: string;
@@ -32,13 +30,20 @@ interface BridgeSession {
   isOwner?: boolean;
 }
 
-interface StatusData {
-  [key: string]: { status: string; configured?: boolean } | undefined;
+interface RegisteredPlatformTab {
+  id: string;
+  displayName?: string;
+  registered: boolean;
 }
 
-function initialBridgePlatform(): BridgePlatform {
+interface StatusData {
+  platforms?: Array<{ id: string; displayName?: string }>;
+  [key: string]: any;
+}
+
+function initialSavedBridgePlatform(): string | null {
   const saved = localStorage.getItem('hana_bridge_tab');
-  return isBridgePlatform(saved) ? saved : 'feishu';
+  return saved && saved.trim() ? saved.trim() : null;
 }
 
 function getBridgeSessionIdentity(
@@ -57,8 +62,9 @@ function getBridgeSessionIdentity(
 
 export function BridgePanel() {
 
-  const [platform, setPlatform] = useState<BridgePlatform>(initialBridgePlatform);
-  const [sessions, setSessions] = useState<BridgeSession[]>([]);
+  const [platform, setPlatform] = useState<string>(initialSavedBridgePlatform() || '');
+  const [allSessions, setAllSessions] = useState<BridgeSession[]>([]);
+  const [visiblePlatforms, setVisiblePlatforms] = useState<RegisteredPlatformTab[]>([]);
   const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [currentName, setCurrentName] = useState('');
   const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(null);
@@ -91,28 +97,58 @@ export function BridgePanel() {
     } catch {}
   }, [bridgeAgentId]);
 
+  const sessions = useMemo(
+    () => (platform ? allSessions.filter((s) => (s.platform || 'bridge') === platform) : []),
+    [allSessions, platform],
+  );
+
   // 加载平台数据（按 agent 过滤，stale-guard via ref）
-  const loadPlatformData = useCallback(async (plat: BridgePlatform) => {
+  const loadPlatformData = useCallback(async (preferredPlat?: string) => {
     const snapshotId = bridgeAgentId;
     if (!snapshotId) return;
     try {
-      const agentQuery = `&agentId=${encodeURIComponent(snapshotId)}`;
+      const agentQuery = `agentId=${encodeURIComponent(snapshotId)}`;
       const [statusRes, sessionsRes] = await Promise.all([
-        hanaFetch(`/api/bridge/status?agentId=${encodeURIComponent(snapshotId)}`),
-        hanaFetch(`/api/bridge/sessions?platform=${plat}${agentQuery}`),
+        hanaFetch(`/api/bridge/status?${agentQuery}`),
+        hanaFetch(`/api/bridge/sessions?${agentQuery}`),
       ]);
       if (bridgeAgentIdRef.current !== snapshotId) return; // stale
-      const sData = await statusRes.json();
+      const sData: StatusData = await statusRes.json();
       const sessData = await sessionsRes.json();
       if (bridgeAgentIdRef.current !== snapshotId) return; // stale
+      const fetchedSessions: BridgeSession[] = Array.isArray(sessData.sessions) ? sessData.sessions : [];
+      const registeredList = Array.isArray(sData.platforms) ? sData.platforms : [];
+      const tabsMap = new Map<string, RegisteredPlatformTab>();
+      for (const p of registeredList) {
+        if (p?.id) tabsMap.set(p.id, { id: p.id, displayName: p.displayName, registered: true });
+      }
+      for (const s of fetchedSessions) {
+        const pid = s.platform || '';
+        if (pid && !tabsMap.has(pid)) {
+          tabsMap.set(pid, { id: pid, displayName: undefined, registered: false });
+        }
+      }
+      const nextTabs = [...tabsMap.values()];
+      const candidate = preferredPlat || platform || initialSavedBridgePlatform() || '';
+      const activePlat = nextTabs.some((tab) => tab.id === candidate)
+        ? candidate
+        : (nextTabs[0]?.id || '');
+
       setStatusData(sData);
+      setAllSessions(fetchedSessions);
+      setVisiblePlatforms(nextTabs);
+      setPlatform(activePlat);
       updateSidebarDot(sData);
-      setShowOverlay(!sData[plat]?.configured);
-      setSessions(sessData.sessions || []);
+      if (activePlat) {
+        const activeTab = tabsMap.get(activePlat);
+        setShowOverlay(!!activeTab?.registered && !sData[activePlat]?.configured);
+      } else {
+        setShowOverlay(false);
+      }
     } catch (err) {
       console.error('[bridge] load platform data failed:', err);
     }
-  }, [bridgeAgentId]);
+  }, [bridgeAgentId, platform]);
 
   const loadData = useCallback(() => {
     loadPlatformData(platform);
@@ -196,7 +232,7 @@ export function BridgePanel() {
     };
   }, [bridgeLatestMessage, visible, platform, loadPlatformData]);
 
-  const switchTab = useCallback((plat: BridgePlatform) => {
+  const switchTab = useCallback((plat: string) => {
     setPlatform(plat);
     setCurrentKey(null);
     setCurrentName('');
@@ -205,8 +241,9 @@ export function BridgePanel() {
     setCurrentSessionPath(null);
     setChatOpen(false);
     localStorage.setItem('hana_bridge_tab', plat);
-    loadPlatformData(plat);
-  }, [loadPlatformData]);
+    const activeTab = visiblePlatforms.find((tab) => tab.id === plat);
+    setShowOverlay(!!activeTab?.registered && !statusData[plat]?.configured);
+  }, [statusData, visiblePlatforms]);
 
   const openSession = useCallback(async (session: BridgeSession) => {
     const snapshotId = bridgeAgentId;
@@ -304,14 +341,14 @@ export function BridgePanel() {
             </div>
           )}
           <div className={fp.bridgeTabs} id="bridgeTabs">
-            {BRIDGE_PANEL_PLATFORMS.map((descriptor) => (
+            {visiblePlatforms.map((descriptor) => (
               <button
                 key={descriptor.id}
                 className={`${fp.bridgeTab}${platform === descriptor.id ? ` ${fp.bridgeTabActive}` : ''}`}
                 onClick={() => switchTab(descriptor.id)}
               >
                 <span className={`${fp.bridgeTabDot}${dotClass(statusData[descriptor.id]?.status)}`} />
-                <span>{bridgePlatformLabel(descriptor, t)}</span>
+                <span>{descriptor.displayName || bridgePlatformLabel(descriptor.id as any, t)}</span>
               </button>
             ))}
           </div>
@@ -323,7 +360,19 @@ export function BridgePanel() {
           </button>
         </div>
         <div className={fp.bridgeBody}>
-          {showOverlay && (
+          {visiblePlatforms.length === 0 && (
+            <div className={fp.bridgeOverlay} id="bridgeOverlay">
+              <div className={fp.bridgeOverlayContent}>
+                <div className={fp.bridgeOverlayText}>
+                  当前未启用任何社交平台插件。请前往「设置 → 插件」安装并启用所需平台。
+                </div>
+                <button className={fp.bridgeOverlayBtn} onClick={() => openSettingsModal('plugins')}>
+                  <span>{t('bridge.goToSettings')}</span>
+                </button>
+              </div>
+            </div>
+          )}
+          {showOverlay && visiblePlatforms.length > 0 && (
             <div className={fp.bridgeOverlay} id="bridgeOverlay">
               <div className={fp.bridgeOverlayContent}>
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -419,9 +468,8 @@ function dotClass(status?: string): string {
 }
 
 function updateSidebarDot(data: Record<string, { status: string } | undefined>) {
-  const anyConnected = BRIDGE_PANEL_PLATFORMS
-    .filter((platform) => platform.statusAffectsSidebarDot !== false)
-    .some((platform) => data[platform.id]?.status === 'connected');
+  const registered = Array.isArray(data.platforms) ? data.platforms : [];
+  const anyConnected = registered.some((platform) => data[platform.id]?.status === 'connected');
   useStore.setState({ bridgeDotConnected: anyConnected });
 }
 

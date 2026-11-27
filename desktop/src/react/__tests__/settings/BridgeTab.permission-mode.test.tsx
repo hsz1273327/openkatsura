@@ -29,6 +29,13 @@ function bridgeState(overrides = {}) {
   const emptyDraft = { ownerId: 'hana', value: '', dirty: false, revision: 0, hasStored: false };
   return {
     status: {
+      platforms: [
+        { id: 'wechat', displayName: 'WeChat' },
+        { id: 'telegram', displayName: 'Telegram' },
+        { id: 'feishu', displayName: 'Feishu' },
+        { id: 'dingtalk', displayName: 'DingTalk' },
+        { id: 'qq', displayName: 'QQ' },
+      ],
       telegram: {},
       feishu: {},
       dingtalk: {},
@@ -165,5 +172,38 @@ describe('BridgeTab permission mode', () => {
     });
 
     expect(positions).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('renders empty-state guidance when no bridge plugins are registered', () => {
+    const state = bridgeState();
+    (state.status as { platforms: unknown[] }).platforms = [];
+    vi.mocked(useBridgeState).mockReturnValue(state as never);
+
+    render(<BridgeTab />);
+
+    expect(document.body.querySelectorAll('[data-testid^="platform-"]').length).toBe(0);
+    expect(document.body.textContent).toContain('当前未启用任何社交平台插件');
+  });
+
+  it('renders only registered plugins including arbitrary third-party schema plugins', () => {
+    const state = bridgeState();
+    (state.status as { platforms: unknown[] }).platforms = [
+      { id: 'qq', displayName: 'QQ' },
+      {
+        id: 'discord',
+        displayName: 'Discord',
+        description: 'Discord Bot plugin',
+        configSchema: [
+          { key: 'botToken', label: 'Bot Token', type: 'secret', required: true },
+        ],
+      },
+    ];
+    vi.mocked(useBridgeState).mockReturnValue(state as never);
+
+    render(<BridgeTab />);
+
+    const rendered = Array.from(document.body.querySelectorAll('[data-testid^="platform-"]'))
+      .map((el) => el.getAttribute('data-testid'));
+    expect(rendered).toEqual(['platform-qq', 'platform-discord']);
   });
 });
