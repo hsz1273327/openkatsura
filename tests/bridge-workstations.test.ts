@@ -1,9 +1,18 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import os from "os";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Hono } from "hono";
 import { createBridgeRoute } from "../server/routes/bridge.ts";
 import { BridgeManager } from "../lib/bridge/bridge-manager.ts";
 import { bridgeProviderRegistry } from "../lib/bridge/bridge-provider-registry.ts";
+import { BridgeSessionManager } from "../core/bridge-session-manager.ts";
+import { RcStateStore } from "../core/slash-commands/rc-state.ts";
+import {
+  extractWorkstationIdFromSessionKey,
+  parseSessionKey,
+  scopeSessionKeyToWorkstation,
+} from "../lib/bridge/session-key.ts";
 
 describe("bridge workstations", () => {
   const registeredIds: string[] = [];
@@ -221,6 +230,184 @@ describe("bridge workstations", () => {
       expect(hub.send).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("scopes and parses workstation suffixes cleanly while preserving legacy sessionKey shape", () => {
+    expect(scopeSessionKeyToWorkstation("qq_dm_owner@hana", "ws_1")).toBe("qq_dm_owner@hana#ws_1");
+    expect(scopeSessionKeyToWorkstation("qq_dm_owner@hana#ws_1", "ws_2")).toBe("qq_dm_owner@hana#ws_1");
+    expect(scopeSessionKeyToWorkstation("qq_dm_owner@hana", null)).toBe("qq_dm_owner@hana");
+
+    expect(extractWorkstationIdFromSessionKey("qq_dm_owner@hana#ws_1")).toBe("ws_1");
+    expect(extractWorkstationIdFromSessionKey("qq_dm_owner@hana")).toBeNull();
+
+    expect(parseSessionKey("qq_dm_owner@hana#ws_1")).toEqual({
+      platform: "qq",
+      chatType: "dm",
+      chatId: "owner",
+      agentId: "hana",
+      workstationId: "ws_1",
+    });
+    expect(parseSessionKey("qq_dm_owner@hana")).toEqual({
+      platform: "qq",
+      chatType: "dm",
+      chatId: "owner",
+      agentId: "hana",
+    });
+    expect(parseSessionKey("qq_dm_owner")).toEqual({
+      platform: "qq",
+      chatType: "dm",
+      chatId: "owner",
+      agentId: null,
+    });
+  });
+
+  it("binds independent session pointers and rc mirror targets for 3 QQ workstations on the same agent", async () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "katsura-ws-pointers-"));
+    const sessionDir = path.join(tmpRoot, "sessions");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    vi.useFakeTimers();
+    try {
+      const s1 = path.join(sessionDir, "session-1.jsonl");
+      const s2 = path.join(sessionDir, "session-2.jsonl");
+      const s3 = path.join(sessionDir, "session-3.jsonl");
+      const s4 = path.join(sessionDir, "session-4.jsonl");
+      for (const fp of [s1, s2, s3, s4]) {
+        fs.writeFileSync(fp, '{"type":"session","id":"s"}\n');
+      }
+
+      const hanaAgent = { id: "hana", agentName: "Hana", sessionDir, config: { bridge: {} } };
+      const bsm = new BridgeSessionManager({
+        getAgentById: (id: string) => (id === "hana" ? hanaAgent : null),
+      });
+      const rcState = new RcStateStore();
+      const createdQueue = [s1, s2, s3];
+      const hub: any = {
+        send: vi.fn().mockResolvedValue({ text: "ok", toolMedia: [], error: null, truncated: false }),
+        eventBus: { emit: vi.fn() },
+        subscribe: vi.fn(() => () => {}),
+      };
+      const engine: any = {
+        rcState,
+        agentName: "Hana",
+        hanakoHome: tmpRoot,
+        currentAgentId: "hana",
+        bridgeSessionManager: bsm,
+        getAgent: vi.fn((id) => (id === "hana" ? hanaAgent : null)),
+        getBridgeReceiptEnabled: vi.fn(() => false),
+        getBridgeRichStreamingEnabled: vi.fn(() => true),
+        isSessionStreaming: vi.fn(() => false),
+        getSessionByPath: vi.fn(() => ({})),
+        resolveBridgeDesktopSessionPath: vi.fn((sessionKey: string, agentId: string) => {
+          const attached = rcState.getAttachment(sessionKey)?.desktopSessionPath;
+          if (attached) return attached;
+          return agentId === "hana" ? bsm.resolveSessionPathForSessionKey(sessionKey, hanaAgent) : null;
+        }),
+        switchBridgeSession: vi.fn((sessionKey: string, sessionPath: string, agentId: string, meta: any = {}) => {
+          const res = bsm.switchSessionForSessionKey({
+            sessionKey,
+            sessionPath,
+            agentId,
+            meta: meta?.indexMeta || null,
+          });
+          const workstationId = meta.workstationId || parseSessionKey(sessionKey).workstationId || null;
+          rcState.attach(sessionKey, res.sessionPath, {
+            platform: meta.platform || "qq",
+            chatId: meta.chatId || null,
+            agentId,
+            workstationId,
+          });
+          return res;
+        }),
+        ensureBridgeOwnerSession: vi.fn(async (sessionKey: string, agentId: string, opts: any = {}) => {
+          const existing = engine.resolveBridgeDesktopSessionPath(sessionKey, agentId);
+          if (existing) return { sessionPath: existing, created: false };
+          const target = createdQueue.shift();
+          if (!target) return null;
+          const workstationId = opts.workstationId || parseSessionKey(sessionKey).workstationId || null;
+          engine.switchBridgeSession(sessionKey, target, agentId, {
+            platform: opts.platform || "qq",
+            chatId: opts.chatId || null,
+            workstationId,
+            indexMeta: {
+              platform: opts.platform || "qq",
+              chatType: "dm",
+              role: "owner",
+              chatId: opts.chatId || "owner-1",
+              ...(workstationId ? { workstationId } : {}),
+            },
+          });
+          return { sessionPath: target, created: true };
+        }),
+        executeAttachedDesktopSessionTurn: vi.fn(async () => ({ text: "reply ok", attachments: [], toolMedia: [] })),
+        emitEvent: vi.fn(),
+      };
+
+      const capturedOnMessage: Array<(msg: any) => Promise<void> | void> = [];
+      const spec = bridgeProviderRegistry.get("qq")!;
+      vi.spyOn(spec, "createAdapter").mockImplementation((_creds, onMessage, _hooks, agentId) => {
+        capturedOnMessage.push(onMessage);
+        return {
+          agentId,
+          sendReply: vi.fn().mockResolvedValue(undefined),
+          stop: vi.fn(),
+        } as any;
+      });
+
+      const bm = new BridgeManager({ engine, hub });
+      bm.blockStreaming = false;
+      for (const id of ["ws_1", "ws_2", "ws_3"]) {
+        bm.startWorkstation({
+          id,
+          platform: "qq",
+          agentId: "hana",
+          enabled: true,
+          allowGuests: false,
+          owner: "owner-1",
+          credentials: { appID: `app-${id}`, appSecret: "sec" },
+        });
+      }
+      expect(capturedOnMessage).toHaveLength(3);
+
+      // Same owner sends a DM through each of the 3 QQ workstations targeting the same agent
+      for (let i = 0; i < 3; i++) {
+        await capturedOnMessage[i]({
+          sessionKey: "qq_dm_owner-1@hana",
+          text: `hello bot ${i + 1}`,
+          userId: "owner-1",
+          chatId: `chat-${i + 1}`,
+          isGroup: false,
+        });
+      }
+      await vi.advanceTimersByTimeAsync(2500);
+
+      expect(bsm.resolveSessionPathForSessionKey("qq_dm_owner-1@hana#ws_1", hanaAgent)).toBe(s1);
+      expect(bsm.resolveSessionPathForSessionKey("qq_dm_owner-1@hana#ws_2", hanaAgent)).toBe(s2);
+      expect(bsm.resolveSessionPathForSessionKey("qq_dm_owner-1@hana#ws_3", hanaAgent)).toBe(s3);
+
+      // Each session path mirrors back to its own workstation's adapter
+      const adapter1 = bm._findPlatformEntry("qq", "hana", "ws_1")?.adapter;
+      const adapter2 = bm._findPlatformEntry("qq", "hana", "ws_2")?.adapter;
+      const adapter3 = bm._findPlatformEntry("qq", "hana", "ws_3")?.adapter;
+      expect(bm._resolveRcMirrorTarget(s1)?.adapter).toBe(adapter1);
+      expect(bm._resolveRcMirrorTarget(s2)?.adapter).toBe(adapter2);
+      expect(bm._resolveRcMirrorTarget(s3)?.adapter).toBe(adapter3);
+
+      // Switching ws_1 to session-4 leaves ws_2 and ws_3 pointers & mirror targets intact
+      engine.switchBridgeSession("qq_dm_owner-1@hana#ws_1", s4, "hana", {
+        platform: "qq",
+        chatId: "chat-1",
+        workstationId: "ws_1",
+      });
+      expect(bsm.resolveSessionPathForSessionKey("qq_dm_owner-1@hana#ws_1", hanaAgent)).toBe(s4);
+      expect(bsm.resolveSessionPathForSessionKey("qq_dm_owner-1@hana#ws_2", hanaAgent)).toBe(s2);
+      expect(bsm.resolveSessionPathForSessionKey("qq_dm_owner-1@hana#ws_3", hanaAgent)).toBe(s3);
+      expect(bm._resolveRcMirrorTarget(s4)?.adapter).toBe(adapter1);
+      expect(bm._resolveRcMirrorTarget(s2)?.adapter).toBe(adapter2);
+      expect(bm._resolveRcMirrorTarget(s3)?.adapter).toBe(adapter3);
+    } finally {
+      vi.useRealTimers();
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
   });
 });

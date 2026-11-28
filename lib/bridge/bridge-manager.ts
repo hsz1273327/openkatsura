@@ -23,7 +23,7 @@ import { collectMediaItems } from "../tools/media-details.ts";
 import { formatSettingsUpdateText } from "../tools/settings-update-result.ts";
 import { isBridgeOwner, resolveBridgeOwnerDeliveryTarget } from "./owner-policy.ts";
 import { normalizeBridgePlatforms } from "./bridge-context.ts";
-import { parseSessionKey } from "./session-key.ts";
+import { parseSessionKey, scopeSessionKeyToWorkstation } from "./session-key.ts";
 import { createModuleLogger } from "../debug-log.ts";
 import { t } from "../i18n.ts";
 import { stripToolProtocolTagsFromProse } from "../tool-protocol-sanitizer.ts";
@@ -71,6 +71,9 @@ function normalizeProactiveBridgeDeliveryTarget(value, fallbackAgentId = null) {
   const agentId = typeof value.agentId === "string" && value.agentId.trim()
     ? value.agentId.trim()
     : (parsed?.agentId || fallbackParts.agentId || (typeof fallbackAgentId === "string" && fallbackAgentId.trim() ? fallbackAgentId.trim() : null));
+  const workstationId = typeof value.workstationId === "string" && value.workstationId.trim()
+    ? value.workstationId.trim()
+    : (parsed?.workstationId || fallbackParts.workstationId || null);
   return {
     kind: "bridge",
     platform: bridgePlatforms[0],
@@ -79,21 +82,28 @@ function normalizeProactiveBridgeDeliveryTarget(value, fallbackAgentId = null) {
     userId: typeof value.userId === "string" && value.userId.trim() ? value.userId.trim() : chatId,
     ...(sessionKey ? { sessionKey } : {}),
     ...(agentId ? { agentId } : {}),
+    ...(workstationId ? { workstationId } : {}),
   };
 }
 
 function bridgeSessionKeyFallbackParts(sessionKey) {
   const value = typeof sessionKey === "string" ? sessionKey.trim() : "";
-  if (!value) return { chatId: null, agentId: null };
-  const atIndex = value.lastIndexOf("@");
-  const head = atIndex >= 0 ? value.slice(0, atIndex) : value;
-  const agentId = atIndex >= 0 && value.slice(atIndex + 1).trim()
-    ? value.slice(atIndex + 1).trim()
+  if (!value) return { chatId: null, agentId: null, workstationId: null };
+  const hashIndex = value.lastIndexOf("#");
+  const workstationId = hashIndex >= 0 && value.slice(hashIndex + 1).trim()
+    ? value.slice(hashIndex + 1).trim()
+    : null;
+  const baseValue = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
+  const atIndex = baseValue.lastIndexOf("@");
+  const head = atIndex >= 0 ? baseValue.slice(0, atIndex) : baseValue;
+  const agentId = atIndex >= 0 && baseValue.slice(atIndex + 1).trim()
+    ? baseValue.slice(atIndex + 1).trim()
     : null;
   const match = head.match(/^[a-z0-9_-]+_dm_(.+)$/);
   return {
     chatId: match?.[1] || null,
     agentId,
+    workstationId,
   };
 }
 
@@ -938,6 +948,7 @@ export class BridgeManager {
     try {
       const onMessage = (msg) => this._handleMessage(platform, {
         ...(msg || {}),
+        sessionKey: scopeSessionKeyToWorkstation(msg?.sessionKey, ws.id),
         workstationId: ws.id,
         agentId: agentId || msg?.agentId || null,
       });
@@ -1235,7 +1246,7 @@ export class BridgeManager {
    * 私聊：debounce 聚合 → 如正在处理则 abort → 合并发送
    */
   async _handleMessage(platform, msg) {
-    const { sessionKey, text, senderName, displayName, avatarUrl, userId, principalId, isGroup, chatId, attachments, agentId: msgAgentId, workstationId: msgWorkstationId, messageThreadId, qqPrincipal } = msg;
+    const { text, senderName, displayName, avatarUrl, userId, principalId, isGroup, chatId, attachments, agentId: msgAgentId, workstationId: msgWorkstationId, messageThreadId, qqPrincipal } = msg;
     const identityAliases = Array.isArray(msg.aliases)
       ? msg.aliases
       : Array.isArray(qqPrincipal?.aliases) ? qqPrincipal.aliases : undefined;
@@ -1248,6 +1259,7 @@ export class BridgeManager {
     // 工位 ID 优先匹配，其次 platform:agentId
     const entry = this._findPlatformEntry(platform, msgAgentId, msgWorkstationId || null);
     const workstationId = msgWorkstationId || entry?.workstationId || null;
+    const sessionKey = scopeSessionKeyToWorkstation(msg.sessionKey, workstationId);
     const agentId = msgAgentId || entry?.agentId || null;
     if (!agentId) {
       log.error(`${platform} 消息缺少 agentId 且 adapter 未绑定，已丢弃。请在 bridge 配置中设置 agentId。`);
@@ -1325,6 +1337,7 @@ export class BridgeManager {
         engine: this.engine,
         agentId,
         chatId,
+        workstationId,
         messageThreadId,
         sessionKey,
         text: text.trim(),
@@ -2140,6 +2153,7 @@ export class BridgeManager {
         const ensured = await this.engine.ensureBridgeOwnerSession(sessionKey, agentId, {
           platform,
           chatId,
+          workstationId,
           messageThreadId,
           meta,
         });
@@ -2901,9 +2915,11 @@ export class BridgeManager {
     const sessionKey = rcState?.getAttachedBridgeSessionKey?.(sessionPath);
     if (!sessionKey) return null;
     const attachment = rcState.getAttachment?.(sessionKey) || {};
-    const platform = attachment.platform || this._platformFromSessionKey(sessionKey);
-    const agentId = attachment.agentId || this._extractAgentIdFromSessionKey(sessionKey);
-    const entry = this._findPlatformEntry(platform, agentId, attachment.workstationId || null);
+    const parsed = parseSessionKey(sessionKey);
+    const platform = attachment.platform || (parsed.platform !== "unknown" ? parsed.platform : null) || this._platformFromSessionKey(sessionKey);
+    const agentId = attachment.agentId || parsed.agentId || this._extractAgentIdFromSessionKey(sessionKey);
+    const workstationId = attachment.workstationId || (parsed as any).workstationId || null;
+    const entry = this._findPlatformEntry(platform, agentId, workstationId);
     const adapter = entry?.adapter;
     if (!adapter) return null;
     const chatId = attachment.chatId || this._chatIdFromBridgeSessionKey(sessionKey);
@@ -2947,7 +2963,8 @@ export class BridgeManager {
   }
 
   _chatIdFromBridgeSessionKey(sessionKey) {
-    const withoutAgent = String(sessionKey || "").split("@")[0] || "";
+    const withoutWs = String(sessionKey || "").split("#")[0] || "";
+    const withoutAgent = withoutWs.split("@")[0] || "";
     const match = /^[a-z0-9-]+_(?:dm|group)_(.+)$/i.exec(withoutAgent);
     return match ? match[1] : null;
   }
@@ -3071,6 +3088,7 @@ export class BridgeManager {
       ? platformEntries.filter((entry) => (
           entry.platform === explicitTarget.platform
           && (!explicitTarget.agentId || entry.agentId === explicitTarget.agentId)
+          && (!explicitTarget.workstationId || entry.workstationId === explicitTarget.workstationId)
         ))
       : bridgePlatforms.length
       ? bridgePlatforms.flatMap((platform) => platformEntries.filter((entry) => entry.platform === platform))
@@ -3100,6 +3118,7 @@ export class BridgeManager {
         platform,
         agent,
         index: this._readBridgeIndex(entryAgentId, agent),
+        ...(entry.workstationId ? { configuredOwner: entry.owner || null, workstationId: entry.workstationId } : {}),
       });
       const ownerId = ownerTarget?.userId;
       if (!ownerId) continue;
@@ -3124,7 +3143,11 @@ export class BridgeManager {
         await entry.adapter.sendReply(chatId, cleaned);
         debugLog()?.log("bridge", `→ ${platform} proactive to owner (${cleaned.length} chars)`);
 
-        const sessionKey = ownerTarget.sessionKey || spec?.ownerSessionKey?.(ownerId, entryAgentId) || `${platform}_dm_${ownerId}@${entryAgentId}`;
+        const rawSessionKey = ownerTarget.sessionKey || spec?.ownerSessionKey?.(ownerId, entryAgentId) || `${platform}_dm_${ownerId}@${entryAgentId}`;
+        const sessionKey = scopeSessionKeyToWorkstation(
+          rawSessionKey,
+          explicitTarget?.workstationId || entry.workstationId || null,
+        );
         const sender = agent?.agentName || this.engine.agentName;
         let recorded = false;
         if (contextPolicy === "record_when_delivered") {
@@ -3291,11 +3314,12 @@ export class BridgeManager {
     );
   }
 
-  /** Extract agentId from sessionKey "@suffix" (e.g., "tg_dm_123@agent-1" → "agent-1") */
+  /** Extract agentId from sessionKey "@suffix" (e.g., "tg_dm_123@agent-1" or "qq_dm_123@agent-1#ws_1" → "agent-1") */
   _extractAgentIdFromSessionKey(sessionKey) {
     if (!sessionKey) return null;
-    const atIdx = sessionKey.lastIndexOf('@');
-    return atIdx !== -1 ? sessionKey.slice(atIdx + 1) : null;
+    const withoutWs = String(sessionKey).split('#')[0] || '';
+    const atIdx = withoutWs.lastIndexOf('@');
+    return atIdx !== -1 ? withoutWs.slice(atIdx + 1) : null;
   }
 
   /** 获取最近消息日志（供 REST API 使用，支持 per-agent 过滤） */

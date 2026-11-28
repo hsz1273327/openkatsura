@@ -66,22 +66,73 @@ export const SESSION_PREFIX_MAP = LEGACY_SESSION_PREFIX_MAP;
 /** 已知平台列表（兼容导出；运行时优先从 BridgeProviderRegistry 读取已注册插件） */
 export const KNOWN_PLATFORMS = [...new Set(LEGACY_SESSION_PREFIX_MAP.map(([, p]) => p))];
 
-/** 从 sessionKey 解析平台 + 类型 + chatId + agentId
- *  新格式: `tg_dm_123@hana` → chatId="123", agentId="hana"
- *  旧格式: `tg_dm_123`      → chatId="123", agentId=null
+/**
+ * 为 sessionKey 附加工位作用域后缀（`#<workstationId>`）。
+ * 无 workstationId 时保持原样（向后兼容旧模式）；已带 `#` 后缀时幂等返回。
+ */
+export function scopeSessionKeyToWorkstation(
+  sessionKey: string,
+  workstationId?: string | null,
+): string {
+  const raw = typeof sessionKey === "string" ? sessionKey.trim() : "";
+  const wsId = typeof workstationId === "string" ? workstationId.trim() : "";
+  if (!raw || !wsId) return raw;
+  if (raw.lastIndexOf("#") !== -1) return raw;
+  return `${raw}#${wsId}`;
+}
+
+/**
+ * 提取 sessionKey 中的 `#<workstationId>` 后缀（未携带返回 null）。
+ */
+export function extractWorkstationIdFromSessionKey(sessionKey: string): string | null {
+  const raw = typeof sessionKey === "string" ? sessionKey.trim() : "";
+  if (!raw) return null;
+  const hashIdx = raw.lastIndexOf("#");
+  if (hashIdx === -1) return null;
+  const wsId = raw.slice(hashIdx + 1).trim();
+  return wsId || null;
+}
+
+/** 从 sessionKey 解析平台 + 类型 + chatId + agentId（及可选 workstationId）
+ *  工位格式: `qq_dm_123@hana#ws_1` → chatId="123", agentId="hana", workstationId="ws_1"
+ *  新格式:   `tg_dm_123@hana`      → chatId="123", agentId="hana"
+ *  旧格式:   `tg_dm_123`           → chatId="123", agentId=null
  */
 export function parseSessionKey(sessionKey) {
+  const raw = typeof sessionKey === "string" ? sessionKey : "";
+  const hashIdx = raw.lastIndexOf("#");
+  const workstationId = hashIdx !== -1 ? (raw.slice(hashIdx + 1).trim() || null) : null;
+  const baseKey = hashIdx !== -1 ? raw.slice(0, hashIdx) : raw;
+
   for (const [prefix, platform, chatType] of getActiveSessionPrefixMap()) {
-    if (sessionKey.startsWith(prefix)) {
-      const tail = sessionKey.slice(prefix.length);
+    if (baseKey.startsWith(prefix)) {
+      const tail = baseKey.slice(prefix.length);
       const atIdx = tail.lastIndexOf("@");
       if (atIdx !== -1) {
-        return { platform, chatType, chatId: tail.slice(0, atIdx), agentId: tail.slice(atIdx + 1) };
+        return {
+          platform,
+          chatType,
+          chatId: tail.slice(0, atIdx),
+          agentId: tail.slice(atIdx + 1),
+          ...(workstationId ? { workstationId } : {}),
+        };
       }
-      return { platform, chatType, chatId: tail, agentId: null };
+      return {
+        platform,
+        chatType,
+        chatId: tail,
+        agentId: null,
+        ...(workstationId ? { workstationId } : {}),
+      };
     }
   }
-  return { platform: "unknown", chatType: "dm", chatId: sessionKey, agentId: null };
+  return {
+    platform: "unknown",
+    chatType: "dm",
+    chatId: baseKey,
+    agentId: null,
+    ...(workstationId ? { workstationId } : {}),
+  };
 }
 
 const PLACEHOLDER_NAMES = new Set(["user"]);

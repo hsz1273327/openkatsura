@@ -33,6 +33,7 @@ const PENDING_DEFAULT_TTL_MS = 5 * 60 * 1000;  // 5 分钟
  * @property {string|null} [platform]  来源 bridge 平台
  * @property {string|null} [chatId]  回发目标 chatId
  * @property {string|null} [agentId]  所属 agent
+ * @property {string|null} [workstationId]  所属工位
  * @property {string|number|null} [messageThreadId]  平台 thread 标识
  */
 
@@ -113,6 +114,7 @@ export class RcStateStore {
       platform: meta.platform || null,
       chatId: meta.chatId || null,
       agentId: meta.agentId || null,
+      workstationId: meta.workstationId || null,
       messageThreadId: meta.messageThreadId || null,
     };
     this._attachment.set(sessionKey, next);
