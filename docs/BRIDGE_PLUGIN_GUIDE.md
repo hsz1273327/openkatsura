@@ -9,10 +9,12 @@ OpenKatsura 的社交平台（Bridge）层已实现 **100% 插件驱动**，主�
 ## 1. Architecture / 架构原则
 
 - **Core owns UI & Security / 主干负责通用 UI 与安全边界**：
-  - Settings UI (`BridgeTab`) dynamically renders configuration forms from your plugin's `configSchema` (`string`, `secret`, `select`), manages masked secret custody, test-connection buttons, and Owner selection.
-  - Core `BridgeManager` & `BridgeSessionManager` manage session binding, Owner vs. non-Owner permission isolation, and message routing.
+  - OpenKatsura models each configured bot as a **Workstation (工位)** pairing one platform adapter instance (credentials, `owner`, and `allowGuests`, which defaults to `false` for owner-only DM) with an immutable target Agent (`agentId`). Users can create multiple Workstations on the same platform bound to the same or different Agents.
+  - Settings UI (`BridgeTab`) lets users create Workstations (`+ New Workstation`) by picking a registered platform and target Agent, dynamically renders configuration forms from your plugin's `configSchema` (`string`, `secret`, `select`), manages masked secret custody, test-connection buttons, and Owner selection.
+  - Core `BridgeManager` & `BridgeSessionManager` manage per-workstation session pointer isolation (`#<workstationId>` session-key scoping and `/rc` attachments), Owner vs. non-Owner permission isolation, and message routing.
 - **Plugin owns Protocol / 插件只负责协议适配**：
   - Declare `configSchema`, `sessionPrefixes`, `createAdapter`, and `testConnection`.
+  - **Multi-instance safety / 多实例安全**: Keep all connection/session state scoped to the adapter instance returned by `createAdapter()` (avoid module-level mutable singletons) so users can run multiple concurrent Workstations on your platform.
   - Register via `ctx.bus.request("bridge:register-provider", { provider })` in `onload()`.
 - **Runtime Constraint / 运行时约束（Electron 42 自带 Node）**：
   - OpenKatsura runs its server inside Electron 42's bundled Node.js (Node 24).
@@ -259,7 +261,7 @@ fs.copyFileSync("manifest.json", "dist/manifest.json");
    - Production: `~/.katsura/plugins/<plugin-id>/`
 2. Restart OpenKatsura.
 3. Open **Settings → Plugins (设置 → 插件)** and enable **Allow full-access community plugins (允许完全访问权限插件)**.
-4. Open **Settings → Social Platforms (设置 → 社交平台)** — your plugin's configuration card will automatically appear from its `configSchema`!
+4. Open **Settings → Social Platforms (设置 → 社交平台)**, click **+ New Workstation (+ 新建工位)**, pick your plugin platform and target Agent — the configuration form will automatically render from `configSchema`!
 
 ---
 
