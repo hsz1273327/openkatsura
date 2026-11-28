@@ -1838,6 +1838,8 @@ export class HanaEngine {
   setBridgeReceiptEnabled(v) { this._prefs.setBridgeReceiptEnabled(v); }
   getBridgeRichStreamingEnabled() { return this._prefs.getBridgeRichStreamingEnabled(); }
   setBridgeRichStreamingEnabled(v) { this._prefs.setBridgeRichStreamingEnabled(v); }
+  getBridgeWorkstations() { return this._prefs.getBridgeWorkstations(); }
+  saveBridgeWorkstations(list) { return this._prefs.saveBridgeWorkstations(list); }
   setOutboundProxyRuntime(runtime) { this._outboundProxyRuntime = runtime || null; }
   getNetworkProxy() { return this._prefs.getNetworkProxy(); }
   setNetworkProxy(v) {

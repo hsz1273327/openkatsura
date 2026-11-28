@@ -5,11 +5,13 @@ export function getConfiguredBridgeOwner(agent, platform) {
   return typeof owner === "string" && owner ? owner : null;
 }
 
-export function isBridgeOwner({ platform, chatType = "dm", userId, aliases, agent }) {
+export function isBridgeOwner({ platform, chatType = "dm", userId, aliases, agent, configuredOwner }: any) {
   if (!userId) return false;
   if (platform === "wechat") return chatType === "dm";
 
-  const owner = getConfiguredBridgeOwner(agent, platform);
+  const owner = configuredOwner !== undefined
+    ? (typeof configuredOwner === "string" && configuredOwner ? configuredOwner : null)
+    : getConfiguredBridgeOwner(agent, platform);
   if (!owner) return false;
   if (owner === userId) return true;
   if (platform !== "qq") return false;

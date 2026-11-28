@@ -61,6 +61,21 @@ export interface RegisteredBridgePlatform {
   actions?: string[];
 }
 
+export interface BridgeWorkstation {
+  id: string;
+  name: string;
+  platform: string;
+  agentId: string;
+  enabled: boolean;
+  allowGuests: boolean;
+  owner: string | null;
+  status?: string;
+  error?: string | null;
+  configured?: boolean;
+  knownUsers?: KnownUser[];
+  [key: string]: unknown;
+}
+
 export interface BridgeStatus {
   agentId?: string | null;
   platforms?: RegisteredBridgePlatform[];
@@ -132,7 +147,7 @@ function storedBridgeSecrets(status: BridgeStatus | null): StoredBridgeSecrets {
   };
 }
 
-export function useBridgeState() {
+export function useBridgeState({ includeWorkstations = false }: { includeWorkstations?: boolean } = {}) {
   // Atomic selectors: only re-render when these specific fields change
   const showToast = useSettingsStore(s => s.showToast);
   const currentAgentId = useSettingsStore(s => s.currentAgentId);
@@ -142,10 +157,13 @@ export function useBridgeState() {
     : null;
   const snapshotFields = bridgeEditableFields(snapshotBridgeStatus);
 
-  // Selected agent for bridge config (independent of Agent tab selection)
+  // Selected agent for bridge config / AGENTS.public.md
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
     currentAgentId
   );
+  const [workstations, setWorkstations] = useState<BridgeWorkstation[] | null>(null);
+  const [workstationPlatforms, setWorkstationPlatforms] = useState<RegisteredBridgePlatform[] | null>(null);
+  const [testingWorkstationId, setTestingWorkstationId] = useState<string | null>(null);
   const [statusState, setStatusState] = useState<{
     ownerId: string | null;
     value: BridgeStatus | null;
@@ -296,6 +314,21 @@ export function useBridgeState() {
     await fetchStatusForAgent(selectedAgentIdRef.current, signal);
   }, [fetchStatusForAgent]);
 
+  const loadWorkstations = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await hanaFetch('/api/bridge/workstations', signal ? { signal } : undefined);
+      const data = await res.json();
+      if (signal?.aborted) return;
+      setWorkstations(Array.isArray(data?.workstations) ? data.workstations : []);
+      if (Array.isArray(data?.platforms)) {
+        setWorkstationPlatforms(data.platforms);
+      }
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return;
+      console.error('[bridge] load workstations failed:', err);
+    }
+  }, []);
+
   // Auto-fetch when selectedAgentId changes (abort stale on switch)
   useEffect(() => {
     if (!selectedAgentId) return;
@@ -308,12 +341,114 @@ export function useBridgeState() {
   }, [applyStatus, selectedAgentId, loadStatus, settingsSnapshot?.agentId]);
 
   useEffect(() => {
+    if (!includeWorkstations) return;
+    const ac = new AbortController();
+    void loadWorkstations(ac.signal);
+    return () => ac.abort();
+  }, [includeWorkstations, loadWorkstations]);
+
+  useEffect(() => {
     const handler = () => {
       void loadStatus();
+      if (includeWorkstations) void loadWorkstations();
     };
     window.addEventListener('hana-bridge-reload', handler);
     return () => window.removeEventListener('hana-bridge-reload', handler);
-  }, [loadStatus]);
+  }, [includeWorkstations, loadStatus, loadWorkstations]);
+
+  const createWorkstation = async (input: { platform: string; agentId: string; name?: string }) => {
+    try {
+      const res = await hanaFetch('/api/bridge/workstations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      const created = data.workstation as BridgeWorkstation;
+      setWorkstations((prev) => [...(prev || []), created]);
+      showToast(t('settings.saved'), 'success');
+      return created;
+    } catch (err: unknown) {
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      return null;
+    }
+  };
+
+  const updateWorkstation = async (
+    id: string,
+    patch: {
+      name?: string;
+      credentials?: Record<string, string>;
+      enabled?: boolean;
+      allowGuests?: boolean;
+      owner?: string | null;
+    },
+  ) => {
+    try {
+      const res = await hanaFetch(`/api/bridge/workstations/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      const updated = data.workstation as BridgeWorkstation;
+      setWorkstations((prev) => (prev || []).map((item) => (item.id === id ? updated : item)));
+      showToast(t('settings.saved'), 'success');
+      return updated;
+    } catch (err: unknown) {
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      return null;
+    }
+  };
+
+  const deleteWorkstation = async (id: string) => {
+    try {
+      const res = await hanaFetch(`/api/bridge/workstations/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      setWorkstations((prev) => (prev || []).filter((item) => item.id !== id));
+      showToast(t('settings.saved'), 'success');
+      return true;
+    } catch (err: unknown) {
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      return false;
+    }
+  };
+
+  const testWorkstation = async (
+    id: string,
+    credentials: Record<string, string>,
+    useSavedCredentials = false,
+  ) => {
+    setTestingWorkstationId(id);
+    try {
+      const res = await hanaFetch(`/api/bridge/workstations/${encodeURIComponent(id)}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials, useSavedCredentials }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(t('settings.bridge.testOk'), 'success');
+      } else {
+        showToast(t('settings.bridge.testFail') + ': ' + (data.error || ''), 'error');
+      }
+    } catch (err: unknown) {
+      showToast(t('settings.bridge.testFail') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+    } finally {
+      setTestingWorkstationId((prev) => (prev === id ? null : prev));
+    }
+  };
 
   const saveBridgeConfig = async (
     plat: string,
@@ -471,5 +606,7 @@ export function useBridgeState() {
     qqAppSecretDraft: secretDrafts.qqAppSecret,
     setQqAppSecret,
     saveBridgeConfig, testPlatform, setOwner, saveGlobalSettings,
+    workstations, workstationPlatforms, testingWorkstationId,
+    loadWorkstations, createWorkstation, updateWorkstation, deleteWorkstation, testWorkstation,
   };
 }

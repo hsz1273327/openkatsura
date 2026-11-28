@@ -366,6 +366,7 @@ function isSettingsReadRoute(verb, routePath) {
     || routePath === "/api/experiments"
     || routePath === "/api/experiments/memory/cache-snapshot-reflection/observation"
     || routePath === "/api/bridge/status"
+    || routePath === "/api/bridge/workstations"
     || routePath === "/api/agents"
     || routePath === "/api/user-profile"
     || routePath === "/api/memories"
@@ -505,12 +506,17 @@ function isProviderManagementRoute(verb, routePath) {
 }
 
 function isBridgeManagementRoute(verb, routePath) {
+  if (verb === "PATCH" || verb === "DELETE") {
+    return /^\/api\/bridge\/workstations\/[^/]+$/.test(routePath);
+  }
   if (verb !== "POST") return false;
   return routePath === "/api/bridge/config"
     || routePath === "/api/bridge/settings"
     || routePath === "/api/bridge/owner"
     || routePath === "/api/bridge/stop"
-    || routePath === "/api/bridge/test";
+    || routePath === "/api/bridge/test"
+    || routePath === "/api/bridge/workstations"
+    || /^\/api\/bridge\/workstations\/[^/]+\/test$/.test(routePath);
 }
 
 function isMcpSettingsReadRoute(verb, routePath) {

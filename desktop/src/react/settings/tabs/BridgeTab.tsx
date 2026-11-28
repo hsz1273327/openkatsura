@@ -4,6 +4,7 @@ import { PlatformSection, type CredentialField } from './bridge/PlatformSection'
 import {
   useBridgeState,
   type BridgeConfigFieldDescriptor,
+  type BridgeWorkstation,
   type RegisteredBridgePlatform,
 } from './bridge/useBridgeState';
 import { BridgePermissionModeSelect, BridgeStatusDot, type BridgePermissionMode } from './bridge/BridgeWidgets';
@@ -18,23 +19,23 @@ interface FieldDraft {
   dirty: boolean;
 }
 
-type PlatformDraftMap = Record<string, Record<string, FieldDraft>>;
+type WorkstationDraftMap = Record<string, Record<string, FieldDraft>>;
 
-function hasStoredSecretFor(platStatus: Record<string, unknown>, field: BridgeConfigFieldDescriptor): boolean {
+function hasStoredSecretFor(record: Record<string, unknown>, field: BridgeConfigFieldDescriptor): boolean {
   const capKey = `has${field.key.charAt(0).toUpperCase()}${field.key.slice(1)}`;
-  if (typeof platStatus[capKey] === 'boolean') return platStatus[capKey] as boolean;
-  if (typeof platStatus[field.key] === 'string' && (platStatus[field.key] as string).length > 0) return true;
+  if (typeof record[capKey] === 'boolean') return record[capKey] as boolean;
+  if (typeof record[field.key] === 'string' && (record[field.key] as string).length > 0) return true;
   if (Array.isArray(field.legacyKeys)) {
     for (const legacy of field.legacyKeys) {
-      if (typeof platStatus[legacy] === 'string' && (platStatus[legacy] as string).length > 0) return true;
+      if (typeof record[legacy] === 'string' && (record[legacy] as string).length > 0) return true;
     }
   }
   return false;
 }
 
-function defaultFieldValue(platStatus: Record<string, unknown>, field: BridgeConfigFieldDescriptor): string {
+function defaultFieldValue(record: Record<string, unknown>, field: BridgeConfigFieldDescriptor): string {
   if (field.type === 'secret') return '';
-  const stored = platStatus[field.key];
+  const stored = record[field.key];
   if (typeof stored === 'string') return stored;
   if (typeof field.defaultValue === 'string') return field.defaultValue;
   if (field.type === 'select' && Array.isArray(field.options) && field.options.length > 0) {
@@ -44,38 +45,76 @@ function defaultFieldValue(platStatus: Record<string, unknown>, field: BridgeCon
 }
 
 export function BridgeTab() {
-  const b = useBridgeState();
-  const [draftsByAgent, setDraftsByAgent] = useState<Record<string, PlatformDraftMap>>({});
-  const [activePlatformId, setActivePlatformId] = useState<string | null>(null);
+  const b = useBridgeState({ includeWorkstations: true });
+  const [draftsByWorkstation, setDraftsByWorkstation] = useState<WorkstationDraftMap>({});
+  const [activeWorkstationId, setActiveWorkstationId] = useState<string | null>(null);
+  const [creatingWorkstation, setCreatingWorkstation] = useState(false);
+  const [newWsPlatform, setNewWsPlatform] = useState('');
+  const [newWsAgentId, setNewWsAgentId] = useState('');
+  const [newWsName, setNewWsName] = useState('');
+  const [creatingSubmit, setCreatingSubmit] = useState(false);
+
   const snapshotBridge = useSettingsStore(s => s.settingsSnapshot.data?.preferences?.bridge);
   const agents = useSettingsStore(s => s.agents);
   const agentOptions = agents.map((agent) => ({ value: agent.id, label: agent.name }));
 
-  const agentKey = b.selectedAgentId || '__default__';
-  const agentDrafts = draftsByAgent[agentKey] || {};
-  const registeredPlatforms = Array.isArray(b.status?.platforms) ? b.status.platforms : null;
+  const registeredPlatforms: RegisteredBridgePlatform[] | null = Array.isArray(b.workstationPlatforms)
+    ? b.workstationPlatforms
+    : (Array.isArray(b.status?.platforms) ? b.status.platforms : null);
+  const workstations: BridgeWorkstation[] | null = Array.isArray(b.workstations)
+    ? b.workstations
+    : null;
 
   useEffect(() => {
-    if (!registeredPlatforms || registeredPlatforms.length === 0) return;
-    if (!activePlatformId || !registeredPlatforms.some((p) => p.id === activePlatformId)) {
-      setActivePlatformId(registeredPlatforms[0].id);
+    if (registeredPlatforms && registeredPlatforms.length > 0) {
+      if (!newWsPlatform || !registeredPlatforms.some((p) => p.id === newWsPlatform)) {
+        setNewWsPlatform(registeredPlatforms[0].id);
+      }
     }
-  }, [activePlatformId, registeredPlatforms]);
+  }, [newWsPlatform, registeredPlatforms]);
 
-  // Clear dirty flags for a platform after a save completes cleanly
-  const clearPlatformDrafts = (platId: string) => {
-    setDraftsByAgent((prev) => {
-      const current = prev[agentKey];
-      if (!current || !current[platId]) return prev;
-      const nextAgent = { ...current };
-      delete nextAgent[platId];
-      return { ...prev, [agentKey]: nextAgent };
+  useEffect(() => {
+    const fallbackAgentId = agentOptions[0]?.value || b.selectedAgentId || '';
+    if (fallbackAgentId && (!newWsAgentId || (agentOptions.length > 0 && !agentOptions.some((a) => a.value === newWsAgentId)))) {
+      setNewWsAgentId(fallbackAgentId);
+    }
+  }, [agentOptions, b.selectedAgentId, newWsAgentId]);
+
+  useEffect(() => {
+    if (!workstations || workstations.length === 0) return;
+    if (!activeWorkstationId || !workstations.some((ws) => ws.id === activeWorkstationId)) {
+      setActiveWorkstationId(workstations[0].id);
+    }
+  }, [activeWorkstationId, workstations]);
+
+  const activeWorkstation = !creatingWorkstation && workstations && workstations.length > 0
+    ? (workstations.find((ws) => ws.id === activeWorkstationId) || workstations[0])
+    : null;
+
+  useEffect(() => {
+    if (activeWorkstation?.agentId && b.selectedAgentId !== activeWorkstation.agentId) {
+      b.setSelectedAgentId(activeWorkstation.agentId);
+    }
+  }, [activeWorkstation?.agentId, b]);
+
+  const clearWorkstationDrafts = (wsId: string) => {
+    setDraftsByWorkstation((prev) => {
+      if (!prev[wsId]) return prev;
+      const next = { ...prev };
+      delete next[wsId];
+      return next;
     });
   };
 
-  useEffect(() => {
-    // No-op hook keeping agentKey scoped cleanly across agent switches
-  }, [agentKey]);
+  const setFieldDraft = (wsId: string, fieldKey: string, value: string) => {
+    setDraftsByWorkstation((prev) => ({
+      ...prev,
+      [wsId]: {
+        ...(prev[wsId] || {}),
+        [fieldKey]: { value, dirty: true },
+      },
+    }));
+  };
 
   const permissionMode = (b.status?.permissionMode || snapshotBridge?.permissionMode) as BridgePermissionMode | undefined;
   const receiptEnabled = typeof b.status?.receiptEnabled === 'boolean'
@@ -88,35 +127,42 @@ export function BridgeTab() {
       : undefined;
   const globalSettingsPending = !permissionMode || b.globalSettingsSaving;
 
-  const setFieldDraft = (platId: string, fieldKey: string, value: string) => {
-    setDraftsByAgent((prev) => ({
-      ...prev,
-      [agentKey]: {
-        ...(prev[agentKey] || {}),
-        [platId]: {
-          ...(prev[agentKey]?.[platId] || {}),
-          [fieldKey]: { value, dirty: true },
-        },
-      },
-    }));
+  const handleCreateWorkstation = async () => {
+    if (!newWsPlatform || !newWsAgentId || creatingSubmit) return;
+    setCreatingSubmit(true);
+    try {
+      const created = await b.createWorkstation?.({
+        platform: newWsPlatform,
+        agentId: newWsAgentId,
+        ...(newWsName.trim() ? { name: newWsName.trim() } : {}),
+      });
+      if (created?.id) {
+        setActiveWorkstationId(created.id);
+        setCreatingWorkstation(false);
+        setNewWsName('');
+      }
+    } finally {
+      setCreatingSubmit(false);
+    }
   };
 
-  const renderPluginSection = (descriptor: RegisteredBridgePlatform) => {
-    const platId = descriptor.id;
-    const platStatus = ((b.status?.[platId] as Record<string, unknown> | undefined) || {});
-    const schema = Array.isArray(descriptor.configSchema) ? descriptor.configSchema : [];
-    const platDraft = agentDrafts[platId] || {};
+  const renderWorkstationPanel = (ws: BridgeWorkstation) => {
+    const descriptor = registeredPlatforms?.find((p) => p.id === ws.platform) || null;
+    const schema = Array.isArray(descriptor?.configSchema) ? descriptor.configSchema : [];
+    const wsDraft = draftsByWorkstation[ws.id] || {};
+    const boundAgent = agents.find((a) => a.id === ws.agentId);
+    const boundAgentName = boundAgent?.name || ws.agentId;
 
     const getFieldValue = (field: BridgeConfigFieldDescriptor) => {
-      const draft = platDraft[field.key];
+      const draft = wsDraft[field.key];
       if (draft?.dirty) return draft.value;
-      return defaultFieldValue(platStatus, field);
+      return defaultFieldValue(ws, field);
     };
 
     const hasUsableField = (field: BridgeConfigFieldDescriptor) => {
-      const draft = platDraft[field.key];
+      const draft = wsDraft[field.key];
       if (field.type === 'secret') {
-        return draft?.dirty ? draft.value.trim().length > 0 : hasStoredSecretFor(platStatus, field);
+        return draft?.dirty ? draft.value.trim().length > 0 : hasStoredSecretFor(ws, field);
       }
       return getFieldValue(field).trim().length > 0;
     };
@@ -126,7 +172,7 @@ export function BridgeTab() {
     const buildCredentials = () => {
       const creds: Record<string, string> = {};
       for (const field of schema) {
-        const draft = platDraft[field.key];
+        const draft = wsDraft[field.key];
         if (field.type === 'secret') {
           if (draft?.dirty) creds[field.key] = draft.value.trim();
         } else {
@@ -137,12 +183,12 @@ export function BridgeTab() {
     };
 
     const shouldUseSavedSecret = () => schema.some(
-      (field) => field.type === 'secret' && !platDraft[field.key]?.dirty && hasStoredSecretFor(platStatus, field),
+      (field) => field.type === 'secret' && !wsDraft[field.key]?.dirty && hasStoredSecretFor(ws, field),
     );
 
     const credentialFields: CredentialField[] = schema.map((field) => {
-      const draft = platDraft[field.key];
-      const storedSecret = field.type === 'secret' && !draft?.dirty && hasStoredSecretFor(platStatus, field);
+      const draft = wsDraft[field.key];
+      const storedSecret = field.type === 'secret' && !draft?.dirty && hasStoredSecretFor(ws, field);
       return {
         key: field.key,
         label: field.label || field.key,
@@ -153,38 +199,44 @@ export function BridgeTab() {
           : (field.placeholder || ''),
         options: field.options,
         onChange: (value: string) => {
-          setFieldDraft(platId, field.key, value);
+          setFieldDraft(ws.id, field.key, value);
           if (field.type === 'select' && hasRequiredFields()) {
             const nextCreds = { ...buildCredentials(), [field.key]: value.trim() };
-            void b.saveBridgeConfig(platId, nextCreds, undefined).then(() => clearPlatformDrafts(platId));
+            void b.updateWorkstation?.(ws.id, { credentials: nextCreds }).then(() => clearWorkstationDrafts(ws.id));
           }
         },
       };
     });
 
-    const allowGuests = platStatus.allowGuests === true;
+    const allowGuests = ws.allowGuests === true;
 
     return (
       <PlatformSection
-        key={platId}
-        platform={platId}
-        title={descriptor.displayName || platId}
+        key={ws.id}
+        platform={ws.platform}
+        title={ws.name || descriptor?.displayName || ws.platform}
         hideSectionHeader
         headerRows={
           <SettingsRow
-            label={t('settings.bridge.targetAgent')}
-            hint={t('settings.bridge.targetAgentHint')}
+            label={`${t('settings.bridge.workstationPlatform')}: ${descriptor?.displayName || ws.platform}`}
+            hint={t('settings.bridge.workstationBoundHint')}
             control={
-              <SelectWidget
-                value={b.selectedAgentId || agentOptions[0]?.value || ''}
-                onChange={b.setSelectedAgentId}
-                options={agentOptions}
-                disabled={agentOptions.length === 0}
-              />
+              <div className={styles['bridge-workstation-actions']}>
+                <span className={styles['settings-section-hint']}>
+                  {`${t('settings.bridge.targetAgent')}: ${boundAgentName}`}
+                </span>
+                <button
+                  type="button"
+                  className={styles['settings-btn-secondary']}
+                  onClick={() => void b.deleteWorkstation?.(ws.id)}
+                >
+                  {t('settings.bridge.deleteWorkstation')}
+                </button>
+              </div>
             }
           />
         }
-        status={platStatus as { status?: string; error?: string; enabled?: boolean }}
+        status={{ status: ws.status, error: ws.error || undefined, enabled: ws.enabled }}
         credentialFields={credentialFields}
         onToggle={async (on) => {
           if (on && !hasRequiredFields()) {
@@ -193,27 +245,30 @@ export function BridgeTab() {
           }
           const creds = buildCredentials();
           const hasChanges = Object.keys(creds).length > 0;
-          await b.saveBridgeConfig(platId, hasChanges ? creds : null, on);
-          clearPlatformDrafts(platId);
+          await b.updateWorkstation?.(ws.id, {
+            ...(hasChanges ? { credentials: creds } : {}),
+            enabled: on,
+          });
+          clearWorkstationDrafts(ws.id);
         }}
         onTest={() => {
           if (!hasRequiredFields()) {
             b.showToast(t('settings.bridge.noCredentials'), 'error');
             return;
           }
-          void b.testPlatform(platId, buildCredentials(), shouldUseSavedSecret());
+          void b.testWorkstation?.(ws.id, buildCredentials(), shouldUseSavedSecret());
         }}
         onCredentialBlur={async () => {
-          const hasDirty = Object.values(platDraft).some((d) => d.dirty);
+          const hasDirty = Object.values(wsDraft).some((d) => d.dirty);
           if (!hasDirty) return;
-          await b.saveBridgeConfig(platId, buildCredentials(), undefined);
-          clearPlatformDrafts(platId);
+          await b.updateWorkstation?.(ws.id, { credentials: buildCredentials() });
+          clearWorkstationDrafts(ws.id);
         }}
-        testing={b.testingPlatform === platId}
-        hint={descriptor.description}
-        ownerUsers={b.status?.knownUsers?.[platId] || []}
-        currentOwner={b.status?.owner?.[platId]}
-        onOwnerChange={(userId) => b.setOwner(platId, userId)}
+        testing={b.testingWorkstationId === ws.id}
+        hint={descriptor?.description}
+        ownerUsers={ws.knownUsers || []}
+        currentOwner={ws.owner || undefined}
+        onOwnerChange={(userId) => b.updateWorkstation?.(ws.id, { owner: userId || null })}
       >
         <SettingsRow
           label={t('settings.bridge.allowGuests')}
@@ -221,9 +276,9 @@ export function BridgeTab() {
           control={
             <Toggle
               on={allowGuests}
-              ariaLabel={`${descriptor.displayName || platId}: ${t('settings.bridge.allowGuests')}`}
+              ariaLabel={`${ws.name || descriptor?.displayName || ws.platform}: ${t('settings.bridge.allowGuests')}`}
               onChange={(on) => {
-                void b.saveBridgeConfig(platId, null, undefined, { allowGuests: on });
+                void b.updateWorkstation?.(ws.id, { allowGuests: on });
               }}
             />
           }
@@ -250,9 +305,11 @@ export function BridgeTab() {
     );
   };
 
-  const activeDescriptor = registeredPlatforms && registeredPlatforms.length > 0
-    ? (registeredPlatforms.find((p) => p.id === activePlatformId) || registeredPlatforms[0])
-    : null;
+  const showCreatePanel = Boolean(
+    registeredPlatforms
+    && registeredPlatforms.length > 0
+    && (creatingWorkstation || (workstations !== null && workstations.length === 0)),
+  );
 
   return (
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="bridge">
@@ -317,31 +374,109 @@ export function BridgeTab() {
             aria-label={t('settings.tabs.bridge')}
             className={styles['bridge-plugin-tabs']}
           >
-            {registeredPlatforms.map((descriptor) => {
-              const isActive = activeDescriptor?.id === descriptor.id;
-              const platStatus = ((b.status?.[descriptor.id] as Record<string, unknown> | undefined) || {});
+            {(workstations || []).map((ws) => {
+              const isActive = !showCreatePanel && activeWorkstation?.id === ws.id;
               return (
                 <button
-                  key={descriptor.id}
+                  key={ws.id}
                   type="button"
                   role="tab"
                   aria-selected={isActive}
-                  data-bridge-tab={descriptor.id}
-                  onClick={() => setActivePlatformId(descriptor.id)}
+                  data-bridge-workstation-tab={ws.id}
+                  onClick={() => {
+                    setCreatingWorkstation(false);
+                    setActiveWorkstationId(ws.id);
+                  }}
                   className={`${styles['bridge-plugin-tab']}${isActive ? ` ${styles['bridge-plugin-tab-active']}` : ''}`}
                 >
-                  <BridgeStatusDot status={typeof platStatus.status === 'string' ? platStatus.status : undefined} />
-                  <span>{descriptor.displayName || descriptor.id}</span>
+                  <BridgeStatusDot status={typeof ws.status === 'string' ? ws.status : undefined} />
+                  <span>{ws.name}</span>
                 </button>
               );
             })}
+            <button
+              type="button"
+              className={styles['settings-btn-secondary']}
+              onClick={() => setCreatingWorkstation(true)}
+            >
+              + {t('settings.bridge.addWorkstation')}
+            </button>
           </div>
 
-          {activeDescriptor && (
-            <div role="tabpanel" data-bridge-tabpanel={activeDescriptor.id}>
-              {renderPluginSection(activeDescriptor)}
+          {showCreatePanel ? (
+            <SettingsSection title={t('settings.bridge.createWorkstation')}>
+              {workstations !== null && workstations.length === 0 && (
+                <div className={styles['settings-section-inset']}>
+                  <div className={styles['settings-section-hint']}>
+                    {t('settings.bridge.noWorkstationsHint')}
+                  </div>
+                </div>
+              )}
+              <SettingsRow
+                label={t('settings.bridge.workstationPlatform')}
+                hint={t('settings.bridge.workstationBoundHint')}
+                control={
+                  <SelectWidget
+                    value={newWsPlatform}
+                    onChange={setNewWsPlatform}
+                    options={registeredPlatforms.map((p) => ({
+                      value: p.id,
+                      label: p.displayName || p.id,
+                    }))}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t('settings.bridge.targetAgent')}
+                hint={t('settings.bridge.targetAgentHint')}
+                control={
+                  <SelectWidget
+                    value={newWsAgentId}
+                    onChange={setNewWsAgentId}
+                    options={agentOptions}
+                    disabled={agentOptions.length === 0}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t('settings.bridge.workstationName')}
+                layout="stacked"
+                control={
+                  <input
+                    className={styles['settings-input']}
+                    type="text"
+                    aria-label={t('settings.bridge.workstationName')}
+                    placeholder={t('settings.bridge.workstationNamePlaceholder')}
+                    value={newWsName}
+                    onChange={(e) => setNewWsName(e.target.value)}
+                  />
+                }
+              />
+              <div className={styles['bridge-workstation-actions']}>
+                <button
+                  type="button"
+                  className={styles['settings-btn-primary']}
+                  disabled={creatingSubmit || !newWsPlatform || !newWsAgentId}
+                  onClick={() => void handleCreateWorkstation()}
+                >
+                  {t('settings.bridge.createWorkstation')}
+                </button>
+                {workstations && workstations.length > 0 && (
+                  <button
+                    type="button"
+                    className={styles['settings-btn-secondary']}
+                    onClick={() => setCreatingWorkstation(false)}
+                  >
+                    {t('settings.bridge.cancel')}
+                  </button>
+                )}
+              </div>
+            </SettingsSection>
+          ) : activeWorkstation ? (
+            <div role="tabpanel" data-bridge-tabpanel={activeWorkstation.id}>
+              {renderWorkstationPanel(activeWorkstation)}
             </div>
-          )}
+          ) : null}
         </>
       )}
     </div>

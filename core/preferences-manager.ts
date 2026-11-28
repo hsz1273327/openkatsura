@@ -395,6 +395,33 @@ export class PreferencesManager {
     this.savePreferences(prefs);
   }
 
+  /** 读取全球/全局 Bridge 工位列表（每台工位 = 一个 Bridge 实例 + 绑定的承接助手） */
+  getBridgeWorkstations() {
+    const list = this._cache.bridge?.workstations;
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((item) => item && typeof item === "object")
+      .map((item) => ({
+        ...item,
+        credentials: item.credentials && typeof item.credentials === "object" ? { ...item.credentials } : {},
+      }));
+  }
+
+  /** 保存 Bridge 工位列表 */
+  saveBridgeWorkstations(workstations) {
+    const prefs = this._mutableCopy();
+    const bridge = { ...(prefs.bridge || {}) };
+    const normalized = Array.isArray(workstations)
+      ? workstations.filter((item) => item && typeof item === "object")
+      : [];
+    if (normalized.length > 0) bridge.workstations = normalized;
+    else delete bridge.workstations;
+    if (Object.keys(bridge).length === 0) delete prefs.bridge;
+    else prefs.bridge = bridge;
+    this.savePreferences(prefs);
+    return this.getBridgeWorkstations();
+  }
+
   /** 读取自动化运行权限模式（全局，默认自动审核）。 */
   getAutomationPermissionMode() {
     return normalizeAutomationPermissionMode(this._cache.automation || {});

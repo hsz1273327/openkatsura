@@ -523,6 +523,13 @@
     font-weight: 600;
 }
 
+.bridge-workstation-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-16);
+}
+
 .shortcut-keycaps {
     display: inline-flex;
     align-items: center;
