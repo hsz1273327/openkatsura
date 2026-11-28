@@ -5,41 +5,47 @@ export function getConfiguredBridgeOwner(agent, platform) {
   return typeof owner === "string" && owner ? owner : null;
 }
 
-export function isBridgeOwner({ platform, chatType = "dm", userId, aliases, agent }) {
+export function isBridgeOwner({ platform, chatType = "dm", userId, aliases, agent, configuredOwner }: any) {
   if (!userId) return false;
   if (platform === "wechat") return chatType === "dm";
 
-  const owner = getConfiguredBridgeOwner(agent, platform);
+  const owner = configuredOwner !== undefined
+    ? (typeof configuredOwner === "string" && configuredOwner ? configuredOwner : null)
+    : getConfiguredBridgeOwner(agent, platform);
   if (!owner) return false;
   if (owner === userId) return true;
   if (platform !== "qq") return false;
   return normalizeStringList(aliases).includes(owner);
 }
 
-export function resolveBridgeOwnerUserId({ platform, agent, index }) {
-  const configured = getConfiguredBridgeOwner(agent, platform);
+export function resolveBridgeOwnerUserId({ platform, agent, index, configuredOwner }: any) {
+  const configured = configuredOwner !== undefined
+    ? cleanString(configuredOwner)
+    : getConfiguredBridgeOwner(agent, platform);
   if (configured) return configured;
   if (platform !== "wechat") return null;
   return inferUniqueWechatOwnerFromIndex(index);
 }
 
-export function resolveBridgeOwnerDeliveryTarget({ platform, agent, index }) {
-  const userId = resolveBridgeOwnerUserId({ platform, agent, index });
+export function resolveBridgeOwnerDeliveryTarget({ platform, agent, index, configuredOwner, workstationId = null }: any) {
+  const userId = resolveBridgeOwnerUserId({ platform, agent, index, configuredOwner });
   if (!userId) return null;
 
   if (platform === "feishu") {
-    return resolveFeishuDeliveryTarget(index, userId);
+    return resolveFeishuDeliveryTarget(index, userId, workstationId);
   }
   if (platform === "qq") {
-    return resolveQQDeliveryTarget(index, userId) || { userId, chatId: userId, sessionKey: null };
+    return resolveQQDeliveryTarget(index, userId, workstationId) || { userId, chatId: userId, sessionKey: null };
   }
 
   return { userId, chatId: userId, sessionKey: null };
 }
 
-function resolveQQDeliveryTarget(index, ownerId) {
+function resolveQQDeliveryTarget(index, ownerId, workstationId = null) {
+  let fallback: { userId: string; chatId: any; sessionKey: string } | null = null;
   for (const [sessionKey, raw] of Object.entries(index || {})) {
-    const { platform, chatType, chatId: sessionChatId } = parseSessionKey(sessionKey);
+    const parsed = parseSessionKey(sessionKey);
+    const { platform, chatType, chatId: sessionChatId } = parsed;
     if (platform !== "qq" || chatType !== "dm") continue;
 
     const entry: Record<string, any> = typeof raw === "string" ? {} : (raw as Record<string, any>) || {};
@@ -47,26 +53,35 @@ function resolveQQDeliveryTarget(index, ownerId) {
     if (!principal) continue;
     if (principal.principalId !== ownerId && !principal.aliases.includes(ownerId)) continue;
 
-    return {
+    const match = {
       userId: principal.principalId,
       chatId: entry.chatId || sessionChatId,
       sessionKey,
     };
+    const keyWsId = entry.workstationId || (parsed as any).workstationId || null;
+    if (workstationId && keyWsId === workstationId) return match;
+    if (!fallback && !keyWsId) fallback = match;
   }
-  return null;
+  return fallback;
 }
 
-function resolveFeishuDeliveryTarget(index, ownerId) {
+function resolveFeishuDeliveryTarget(index, ownerId, workstationId = null) {
+  let fallback: { userId: string; chatId: any; sessionKey: string } | null = null;
   for (const [sessionKey, raw] of Object.entries(index || {})) {
-    const { platform, chatType, chatId: sessionUserId } = parseSessionKey(sessionKey);
+    const parsed = parseSessionKey(sessionKey);
+    const { platform, chatType, chatId: sessionUserId } = parsed;
     if (platform !== "feishu" || chatType !== "dm") continue;
 
     const entry: Record<string, any> = typeof raw === "string" ? {} : (raw as Record<string, any>) || {};
     if (entry.userId !== ownerId && sessionUserId !== ownerId) continue;
     if (!entry.chatId) continue;
-    return { userId: ownerId, chatId: entry.chatId, sessionKey };
+
+    const match = { userId: ownerId, chatId: entry.chatId, sessionKey };
+    const keyWsId = entry.workstationId || (parsed as any).workstationId || null;
+    if (workstationId && keyWsId === workstationId) return match;
+    if (!fallback && !keyWsId) fallback = match;
   }
-  return null;
+  return fallback;
 }
 
 function inferUniqueWechatOwnerFromIndex(index) {

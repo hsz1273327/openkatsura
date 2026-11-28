@@ -23,7 +23,7 @@ import { collectMediaItems } from "../tools/media-details.ts";
 import { formatSettingsUpdateText } from "../tools/settings-update-result.ts";
 import { isBridgeOwner, resolveBridgeOwnerDeliveryTarget } from "./owner-policy.ts";
 import { normalizeBridgePlatforms } from "./bridge-context.ts";
-import { parseSessionKey } from "./session-key.ts";
+import { parseSessionKey, scopeSessionKeyToWorkstation } from "./session-key.ts";
 import { createModuleLogger } from "../debug-log.ts";
 import { t } from "../i18n.ts";
 import { stripToolProtocolTagsFromProse } from "../tool-protocol-sanitizer.ts";
@@ -71,6 +71,9 @@ function normalizeProactiveBridgeDeliveryTarget(value, fallbackAgentId = null) {
   const agentId = typeof value.agentId === "string" && value.agentId.trim()
     ? value.agentId.trim()
     : (parsed?.agentId || fallbackParts.agentId || (typeof fallbackAgentId === "string" && fallbackAgentId.trim() ? fallbackAgentId.trim() : null));
+  const workstationId = typeof value.workstationId === "string" && value.workstationId.trim()
+    ? value.workstationId.trim()
+    : (parsed?.workstationId || fallbackParts.workstationId || null);
   return {
     kind: "bridge",
     platform: bridgePlatforms[0],
@@ -79,21 +82,28 @@ function normalizeProactiveBridgeDeliveryTarget(value, fallbackAgentId = null) {
     userId: typeof value.userId === "string" && value.userId.trim() ? value.userId.trim() : chatId,
     ...(sessionKey ? { sessionKey } : {}),
     ...(agentId ? { agentId } : {}),
+    ...(workstationId ? { workstationId } : {}),
   };
 }
 
 function bridgeSessionKeyFallbackParts(sessionKey) {
   const value = typeof sessionKey === "string" ? sessionKey.trim() : "";
-  if (!value) return { chatId: null, agentId: null };
-  const atIndex = value.lastIndexOf("@");
-  const head = atIndex >= 0 ? value.slice(0, atIndex) : value;
-  const agentId = atIndex >= 0 && value.slice(atIndex + 1).trim()
-    ? value.slice(atIndex + 1).trim()
+  if (!value) return { chatId: null, agentId: null, workstationId: null };
+  const hashIndex = value.lastIndexOf("#");
+  const workstationId = hashIndex >= 0 && value.slice(hashIndex + 1).trim()
+    ? value.slice(hashIndex + 1).trim()
+    : null;
+  const baseValue = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
+  const atIndex = baseValue.lastIndexOf("@");
+  const head = atIndex >= 0 ? baseValue.slice(0, atIndex) : baseValue;
+  const agentId = atIndex >= 0 && baseValue.slice(atIndex + 1).trim()
+    ? baseValue.slice(atIndex + 1).trim()
     : null;
   const match = head.match(/^[a-z0-9_-]+_dm_(.+)$/);
   return {
     chatId: match?.[1] || null,
     agentId,
+    workstationId,
   };
 }
 
@@ -670,8 +680,9 @@ export class BridgeManager {
       : null;
   }
 
-  /** 生成平台 Map key（支持 per-agent 多实例） */
-  _getPlatformKey(platform, agentId) {
+  /** 生成平台 Map key（优先使用工位 ID，其次 platform:agentId） */
+  _getPlatformKey(platform, agentId, workstationId = null) {
+    if (workstationId) return `ws:${workstationId}`;
     return agentId ? `${platform}:${agentId}` : platform;
   }
 
@@ -697,10 +708,19 @@ export class BridgeManager {
     return roots;
   }
 
-  /** 按平台名+agentId 查找 entry */
-  _findPlatformEntry(platform, agentId) {
+  /** 按工位 ID 或平台名+agentId 查找 entry */
+  _findPlatformEntry(platform, agentId, workstationId = null) {
+    if (workstationId) {
+      const byWs = this._platforms.get(`ws:${workstationId}`);
+      if (byWs) return byWs;
+    }
     if (agentId) {
-      return this._platforms.get(this._getPlatformKey(platform, agentId)) || null;
+      const direct = this._platforms.get(this._getPlatformKey(platform, agentId));
+      if (direct) return direct;
+      for (const [, entry] of this._platforms) {
+        if (entry.platform === platform && entry.agentId === agentId) return entry;
+      }
+      return null;
     }
     // No agentId: return first matching platform entry (legacy compat)
     for (const [, entry] of this._platforms) {
@@ -776,6 +796,7 @@ export class BridgeManager {
       isOwner: pending.isOwner,
       bridgeRole: pending.bridgeRole,
       agentId: pending.agentId,
+      workstationId: pending.workstationId || null,
       messageThreadId: pending.messageThreadId,
       replyContext: pending.replyContext,
     };
@@ -798,8 +819,14 @@ export class BridgeManager {
     };
   }
 
-  /** 遍历所有 agent 的 config.bridge，自动启动已启用的已注册平台插件 */
+  /** 遍历所有工位与兼容旧 agent config.bridge，自动启动已启用的已注册平台插件 */
   autoStart(agents) {
+    const workstations = this.engine?.getBridgeWorkstations?.() || [];
+    for (const ws of workstations) {
+      if (ws?.enabled) {
+        this.startWorkstation(ws);
+      }
+    }
     if (!agents) return;
     for (const provider of bridgeProviderRegistry.list()) {
       this.autoStartPlatform(provider.id, agents);
@@ -827,13 +854,157 @@ export class BridgeManager {
     }
   }
 
-  /** 停止某平台下所有 agent 的活跃连接（插件停用/卸载时调用） */
+  /** 停止某平台下所有连接（插件停用/卸载时调用） */
   stopAllForPlatform(platform) {
     const target = String(platform || "").trim().toLowerCase();
     for (const [, entry] of [...this._platforms.entries()]) {
       if (entry.platform === target) {
-        this.stopPlatform(entry.platform, entry.agentId);
+        if (entry.workstationId) this.stopWorkstation(entry.workstationId);
+        else this.stopPlatform(entry.platform, entry.agentId);
       }
+    }
+  }
+
+  /** 获取单个工位的实时连接状态 */
+  getWorkstationStatus(workstationId) {
+    if (!workstationId) return { status: "disconnected", error: null };
+    const entry = this._platforms.get(this._getPlatformKey("", null, workstationId));
+    return { status: entry?.status || "disconnected", error: entry?.error || null };
+  }
+
+  /** 运行期同步工位的 Owner / 访客策略（无需重启连接） */
+  updateWorkstationRuntimePolicy(workstationId, patch: { owner?: string | null; allowGuests?: boolean } = {}) {
+    if (!workstationId) return;
+    const entry = this._platforms.get(this._getPlatformKey("", null, workstationId));
+    if (!entry) return;
+    if (patch.owner !== undefined) entry.owner = patch.owner || null;
+    if (typeof patch.allowGuests === "boolean") entry.allowGuests = patch.allowGuests;
+  }
+
+  /** 停止指定工位的适配器连接 */
+  stopWorkstation(workstationId) {
+    if (!workstationId) return;
+    const key = this._getPlatformKey("", null, workstationId);
+    const entry = this._platforms.get(key);
+    if (!entry) return;
+    try {
+      entry.adapter?.stop();
+    } catch {
+      // teardown best-effort
+    }
+    this._platforms.delete(key);
+    log.log(`${entry.platform} 工位(${workstationId}) 已停止`);
+    debugLog()?.log("bridge", `${entry.platform} workstation(${workstationId}) stopped`);
+    this._emitStatus(entry.platform, "disconnected", null, entry.agentId);
+  }
+
+  /** 启动指定工位（每台工位持有独立的 platform 驱动、凭据、agentId 绑定与访客策略） */
+  startWorkstation(ws) {
+    if (!ws?.id || !ws?.platform) return;
+    this.stopWorkstation(ws.id);
+    if (!ws.enabled) return;
+
+    const platform = ws.platform;
+    const agentId = ws.agentId || null;
+    const key = this._getPlatformKey(platform, agentId, ws.id);
+    const spec = bridgeProviderRegistry.get(platform);
+    if (!spec) {
+      const msg = `Unknown or uninstalled bridge platform plugin: ${platform}`;
+      this._platforms.set(key, {
+        adapter: null,
+        status: "error",
+        error: msg,
+        agentId,
+        platform,
+        workstationId: ws.id,
+        allowGuests: ws.allowGuests === true,
+        owner: ws.owner || null,
+      });
+      this._emitStatus(platform, "error", msg, agentId);
+      return;
+    }
+
+    const host = this._createHostServices(platform);
+    let creds = null;
+    try {
+      creds = spec.getCredentials({ ...(ws.credentials || {}), enabled: ws.enabled === true }, host);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      this._platforms.set(key, {
+        adapter: null,
+        status: "error",
+        error: msg,
+        agentId,
+        platform,
+        workstationId: ws.id,
+        allowGuests: ws.allowGuests === true,
+        owner: ws.owner || null,
+      });
+      this._emitStatus(platform, "error", msg, agentId);
+      return;
+    }
+    if (!creds) return;
+
+    try {
+      const onMessage = (msg) => this._handleMessage(platform, {
+        ...(msg || {}),
+        sessionKey: scopeSessionKeyToWorkstation(msg?.sessionKey, ws.id),
+        workstationId: ws.id,
+        agentId: agentId || msg?.agentId || null,
+      });
+      const updateWorkstationCredentials = (patch) => {
+        if (!patch || typeof patch !== "object") return;
+        const currentList = this.engine?.getBridgeWorkstations?.() || [];
+        const updatedList = currentList.map((item) => item?.id === ws.id
+          ? { ...item, credentials: { ...(item.credentials || {}), ...patch } }
+          : item);
+        this.engine?.saveBridgeWorkstations?.(updatedList);
+      };
+      const hooks = {
+        onEvent: (evt) => this._hub.eventBus.emit(evt, null),
+        updatePlatformConfig: updateWorkstationCredentials,
+        onQqDmGuild: (userId, guildId) => {
+          const currentList = this.engine?.getBridgeWorkstations?.() || [];
+          const target = currentList.find((item) => item?.id === ws.id);
+          const existing = target?.credentials?.dmGuildMap || {};
+          if (existing[userId] === guildId) return;
+          updateWorkstationCredentials({ dmGuildMap: { ...existing, [userId]: guildId } });
+        },
+        onStatus: (status, error) => {
+          const entry = this._platforms.get(key);
+          if (entry) { entry.status = status; entry.error = error || null; }
+          this._emitStatus(platform, status, error, agentId);
+        },
+      };
+      const adapter = spec.createAdapter(creds, onMessage, hooks, agentId, host);
+      const initialStatus = spec.connectsAsync ? "connecting" : "connected";
+      this._platforms.set(key, {
+        adapter,
+        status: initialStatus,
+        error: null,
+        agentId,
+        platform,
+        workstationId: ws.id,
+        allowGuests: ws.allowGuests === true,
+        owner: ws.owner || null,
+      });
+      log.log(`${platform} 工位(${ws.id}) 已启动`);
+      debugLog()?.log("bridge", `${platform} workstation(${ws.id}) started`);
+      this._emitStatus(platform, initialStatus, null, agentId);
+    } catch (err: any) {
+      log.error(`${platform} 工位(${ws.id}) 启动失败: ${err.message}`);
+      debugLog()?.error("bridge", `${platform} workstation(${ws.id}) start failed: ${err.message}`);
+      this._platforms.set(key, {
+        adapter: null,
+        status: "error",
+        error: err.message,
+        agentId,
+        platform,
+        workstationId: ws.id,
+        allowGuests: ws.allowGuests === true,
+        owner: ws.owner || null,
+      });
+      this._emitStatus(platform, "error", err.message, agentId);
     }
   }
 
@@ -1040,7 +1211,7 @@ export class BridgeManager {
     };
   }
 
-  async _startLlmWaitingReceipt({ delivery, platform, chatId, agentId, replyContext, isGroup = false }) {
+  async _startLlmWaitingReceipt({ delivery, platform, chatId, agentId, workstationId = null, replyContext, isGroup = false }) {
     const empty = { mode: "none", stop: async () => {} };
     if (this._deliveryFoldsReceipt(delivery)) {
       const receiptText = this._llmWaitingReceiptText(agentId);
@@ -1051,7 +1222,7 @@ export class BridgeManager {
     const receiptText = this._llmWaitingReceiptText(agentId);
     if (receiptText === undefined) return empty;
 
-    const entry = this._platforms.get(this._getPlatformKey(platform, agentId));
+    const entry = this._findPlatformEntry(platform, agentId, workstationId);
     const adapter = entry?.adapter;
     if (!adapter) return empty;
 
@@ -1075,7 +1246,7 @@ export class BridgeManager {
    * 私聊：debounce 聚合 → 如正在处理则 abort → 合并发送
    */
   async _handleMessage(platform, msg) {
-    const { sessionKey, text, senderName, displayName, avatarUrl, userId, principalId, isGroup, chatId, attachments, agentId: msgAgentId, messageThreadId, qqPrincipal } = msg;
+    const { text, senderName, displayName, avatarUrl, userId, principalId, isGroup, chatId, attachments, agentId: msgAgentId, workstationId: msgWorkstationId, messageThreadId, qqPrincipal } = msg;
     const identityAliases = Array.isArray(msg.aliases)
       ? msg.aliases
       : Array.isArray(qqPrincipal?.aliases) ? qqPrincipal.aliases : undefined;
@@ -1085,8 +1256,10 @@ export class BridgeManager {
       messageThreadId,
       targetType: msg.replyTargetType || null,
     });
-    // agentId 优先从消息取，fallback 到 platform entry 的绑定
-    const entry = this._platforms.get(this._getPlatformKey(platform, msgAgentId));
+    // 工位 ID 优先匹配，其次 platform:agentId
+    const entry = this._findPlatformEntry(platform, msgAgentId, msgWorkstationId || null);
+    const workstationId = msgWorkstationId || entry?.workstationId || null;
+    const sessionKey = scopeSessionKeyToWorkstation(msg.sessionKey, workstationId);
     const agentId = msgAgentId || entry?.agentId || null;
     if (!agentId) {
       log.error(`${platform} 消息缺少 agentId 且 adapter 未绑定，已丢弃。请在 bridge 配置中设置 agentId。`);
@@ -1104,8 +1277,25 @@ export class BridgeManager {
       isGroup, ts: Date.now(),
     });
 
-    const isOwner = this._isOwner(platform, userId, agentId, { isGroup, aliases: identityAliases });
+    const isOwner = this._isOwner(platform, userId, agentId, { isGroup, aliases: identityAliases, entry });
     const bridgeRole = isGroup ? "guest" : isOwner ? "owner" : "guest";
+
+    // ── 访客与群聊访问控制（默认关闭：仅允许 Owner 私聊） ──
+    if (bridgeRole === "guest" && !this._allowsGuests(platform, agentId, entry)) {
+      if (!isGroup && userId) {
+        this._recordKnownDmSenderIfUnbound(platform, agentId, sessionKey, {
+          name: cleanBridgeMetadataString(displayName) || cleanBridgeMetadataString(senderName),
+          displayName: cleanBridgeMetadataString(displayName) || cleanBridgeMetadataString(senderName),
+          avatarUrl,
+          userId,
+          principalId,
+          chatId,
+          ...(qqPrincipal ? { qqPrincipal } : {}),
+        });
+      }
+      debugLog()?.log("bridge", `blocked ${isGroup ? "group" : "guest"} message on ${platform} (allowGuests=false)`);
+      return;
+    }
 
     // ── Slash 命令拦截（统一走 dispatcher）──
     // 纪律：
@@ -1147,6 +1337,7 @@ export class BridgeManager {
         engine: this.engine,
         agentId,
         chatId,
+        workstationId,
         messageThreadId,
         sessionKey,
         text: text.trim(),
@@ -1184,6 +1375,7 @@ export class BridgeManager {
         isOwner,
         bridgeRole,
         agentId,
+        workstationId,
         replyContext,
       };
       this._appendPendingAttachments(entry, batch.attachments, attachments);
@@ -1200,12 +1392,12 @@ export class BridgeManager {
 
     let pending = this._pending.get(sessionKey);
     if (!pending) {
-      pending = { kind: "dm-buffer", lines: [], attachments: [], platform, chatId, senderName, displayName, avatarUrl, userId, principalId, qqPrincipal, isGroup, isOwner, bridgeRole, agentId, messageThreadId, replyContext };
+      pending = { kind: "dm-buffer", lines: [], attachments: [], platform, chatId, senderName, displayName, avatarUrl, userId, principalId, qqPrincipal, isGroup, isOwner, bridgeRole, agentId, workstationId, messageThreadId, replyContext };
       this._pending.set(sessionKey, pending);
     }
     pending.lines.push(line);
     this._appendPendingAttachments(entry, pending.attachments, attachments);
-    Object.assign(pending, { platform, chatId, senderName, displayName, avatarUrl, userId, principalId, qqPrincipal, isGroup, isOwner, bridgeRole, messageThreadId, replyContext });
+    Object.assign(pending, { platform, chatId, senderName, displayName, avatarUrl, userId, principalId, qqPrincipal, isGroup, isOwner, bridgeRole, workstationId, messageThreadId, replyContext });
 
     const isActive = this._isChannelSessionStreaming(sessionKey, agentId, bridgeRole);
 
@@ -1218,6 +1410,36 @@ export class BridgeManager {
       return true;
     }
     return this.engine?.isBridgeSessionStreaming?.(sessionKey, bridgeRole ? { role: bridgeRole } : undefined) ?? false;
+  }
+
+  _allowsGuests(platform, agentId, entry = null) {
+    if (entry?.workstationId) {
+      return entry.allowGuests === true;
+    }
+    const agent = this.engine?.getAgent?.(agentId);
+    const cfg = agent?.config?.bridge?.[platform];
+    return cfg?.allowGuests === true;
+  }
+
+  _recordKnownDmSenderIfUnbound(platform, agentId, sessionKey, meta) {
+    try {
+      const agent = this.engine?.getAgent?.(agentId);
+      const bsm = this.engine?.bridgeSessionManager;
+      if (!agent || !bsm?.readIndex || !bsm?.writeIndex) return;
+      const index = bsm.readIndex(agent) || {};
+      const existing = index[sessionKey];
+      if (existing && typeof existing === "object" && existing.userId === meta.userId) return;
+      const base = existing && typeof existing === "object" ? { ...existing } : (typeof existing === "string" ? { file: existing } : {});
+      index[sessionKey] = {
+        ...base,
+        ...meta,
+        platform,
+        chatType: "dm",
+      };
+      bsm.writeIndex(index, agent);
+    } catch {
+      // Best-effort discovery so user can pick Owner in settings even with allowGuests=false.
+    }
   }
 
   /**
@@ -1234,13 +1456,13 @@ export class BridgeManager {
     return null;
   }
 
-  async _resolveAttachments(platform, attachments, agentId) {
+  async _resolveAttachments(platform, attachments, agentId, workstationId = null) {
     const images = [];
     const notes = [];
     const inboundFiles = [];
     if (!attachments?.length) return { images, textNotes: "", inboundFiles };
 
-    const entry = this._findPlatformEntry(platform, agentId);
+    const entry = this._findPlatformEntry(platform, agentId, workstationId);
     const adapter = entry?.adapter;
 
     for (const att of attachments) {
@@ -1897,11 +2119,11 @@ export class BridgeManager {
     let receiptDelivery = null;
 
     // 取出所有缓冲消息和附件
-    const { lines, attachments: pendingAttachments = [], platform, chatId, senderName, displayName, avatarUrl, userId, principalId, qqPrincipal, isGroup, isOwner, bridgeRole, agentId, messageThreadId, replyContext } = batch;
+    const { lines, attachments: pendingAttachments = [], platform, chatId, senderName, displayName, avatarUrl, userId, principalId, qqPrincipal, isGroup, isOwner, bridgeRole, agentId, workstationId = null, messageThreadId, replyContext } = batch;
 
     try {
       // 解析附件
-      const { images, textNotes, inboundFiles } = await this._resolveAttachments(platform, pendingAttachments, agentId);
+      const { images, textNotes, inboundFiles } = await this._resolveAttachments(platform, pendingAttachments, agentId, workstationId);
       const prompt = textNotes ? `${lines.join("\n")}\n${textNotes}` : lines.join("\n");
       const merged = `${timeTag()} ${prompt}`;
       const resolvedDisplayName = cleanBridgeMetadataString(displayName) || cleanBridgeMetadataString(senderName);
@@ -1931,6 +2153,7 @@ export class BridgeManager {
         const ensured = await this.engine.ensureBridgeOwnerSession(sessionKey, agentId, {
           platform,
           chatId,
+          workstationId,
           messageThreadId,
           meta,
         });
@@ -1952,7 +2175,7 @@ export class BridgeManager {
           } catch (err) {
             log.warn(`emit bridge_rc_detached failed: ${err?.message}`);
           }
-          const staleEntry = this._platforms.get(this._getPlatformKey(platform, agentId));
+          const staleEntry = this._findPlatformEntry(platform, agentId, workstationId);
           try {
             if (staleEntry?.adapter?.sendReply) {
               await this._sendAdapterReply(staleEntry.adapter, chatId, "接管已失效：目标桌面会话不存在，已自动退出 /rc", replyContext);
@@ -1969,6 +2192,7 @@ export class BridgeManager {
               platform,
               chatId,
               agentId,
+              workstationId,
               messageThreadId,
             });
             this.engine.emitEvent?.({
@@ -1985,6 +2209,7 @@ export class BridgeManager {
           platform,
           chatId,
           agentId,
+          workstationId,
           text: sanitizeBridgeVisibleText(prompt || (images.length ? "请查看图片" : "")),
           images,
           inboundFiles,
@@ -1995,8 +2220,7 @@ export class BridgeManager {
         return;
       }
 
-      const platformKey = this._getPlatformKey(platform, agentId);
-      const entry = this._platforms.get(platformKey);
+      const entry = this._findPlatformEntry(platform, agentId, workstationId);
       const adapter = entry?.adapter;
       const delivery: any = this._createStreamDelivery({
         adapter,
@@ -2013,7 +2237,7 @@ export class BridgeManager {
         debugLog()?.log("bridge", `steer ${platform} dm (${lines.length} msg(s))`);
         return;
       }
-      receiptDelivery = await this._startLlmWaitingReceipt({ delivery, platform, chatId, agentId, replyContext, isGroup });
+      receiptDelivery = await this._startLlmWaitingReceipt({ delivery, platform, chatId, agentId, workstationId, replyContext, isGroup });
 
       debugLog()?.log("bridge", `flush ${platform} ${isGroup ? "group" : "dm"} (${lines.length} msg(s), ${merged.length} chars${images.length ? `, ${images.length} image(s)` : ""})`);
 
@@ -2264,13 +2488,13 @@ export class BridgeManager {
    *
    * @private
    */
-  async _flushAttachedDesktopSession({ sessionKey, desktopSessionPath, platform, chatId, agentId, text, images, inboundFiles, messageThreadId = null, replyContext = null, alreadyLocked = false }) {
+  async _flushAttachedDesktopSession({ sessionKey, desktopSessionPath, platform, chatId, agentId, workstationId = null, text, images, inboundFiles, messageThreadId = null, replyContext = null, alreadyLocked = false }) {
     if (!alreadyLocked) {
       if (this._processing.has(sessionKey)) return;
       this._processing.add(sessionKey);
     }
 
-    const entry = this._platforms.get(this._getPlatformKey(platform, agentId));
+    const entry = this._findPlatformEntry(platform, agentId, workstationId);
     const adapter = entry?.adapter;
     const delivery: any = this._createStreamDelivery({
       adapter,
@@ -2290,6 +2514,7 @@ export class BridgeManager {
         platform,
         chatId,
         agentId,
+        workstationId,
         replyContext,
         isGroup: false,
       });
@@ -2690,9 +2915,11 @@ export class BridgeManager {
     const sessionKey = rcState?.getAttachedBridgeSessionKey?.(sessionPath);
     if (!sessionKey) return null;
     const attachment = rcState.getAttachment?.(sessionKey) || {};
-    const platform = attachment.platform || this._platformFromSessionKey(sessionKey);
-    const agentId = attachment.agentId || this._extractAgentIdFromSessionKey(sessionKey);
-    const entry = this._platforms.get(this._getPlatformKey(platform, agentId));
+    const parsed = parseSessionKey(sessionKey);
+    const platform = attachment.platform || (parsed.platform !== "unknown" ? parsed.platform : null) || this._platformFromSessionKey(sessionKey);
+    const agentId = attachment.agentId || parsed.agentId || this._extractAgentIdFromSessionKey(sessionKey);
+    const workstationId = attachment.workstationId || (parsed as any).workstationId || null;
+    const entry = this._findPlatformEntry(platform, agentId, workstationId);
     const adapter = entry?.adapter;
     if (!adapter) return null;
     const chatId = attachment.chatId || this._chatIdFromBridgeSessionKey(sessionKey);
@@ -2736,7 +2963,8 @@ export class BridgeManager {
   }
 
   _chatIdFromBridgeSessionKey(sessionKey) {
-    const withoutAgent = String(sessionKey || "").split("@")[0] || "";
+    const withoutWs = String(sessionKey || "").split("#")[0] || "";
+    const withoutAgent = withoutWs.split("@")[0] || "";
     const match = /^[a-z0-9-]+_(?:dm|group)_(.+)$/i.exec(withoutAgent);
     return match ? match[1] : null;
   }
@@ -2770,15 +2998,17 @@ export class BridgeManager {
     return this._mediaDelivery.describe(item);
   }
 
-  /** 判断消息发送者是否为 owner（per-agent） */
+  /** 判断消息发送者是否为 owner（支持工位独立 owner 或旧 agent.config.bridge owner） */
   _isOwner(platform, userId, agentId, opts: any = {}) {
     const agent = agentId ? this.engine.getAgent(agentId) : null;
+    const entry = opts.entry;
     return isBridgeOwner({
       platform,
       chatType: opts.isGroup ? "group" : "dm",
       userId,
       aliases: opts.aliases,
       agent,
+      ...(entry?.workstationId ? { configuredOwner: entry.owner || null } : {}),
     });
   }
 
@@ -2858,6 +3088,7 @@ export class BridgeManager {
       ? platformEntries.filter((entry) => (
           entry.platform === explicitTarget.platform
           && (!explicitTarget.agentId || entry.agentId === explicitTarget.agentId)
+          && (!explicitTarget.workstationId || entry.workstationId === explicitTarget.workstationId)
         ))
       : bridgePlatforms.length
       ? bridgePlatforms.flatMap((platform) => platformEntries.filter((entry) => entry.platform === platform))
@@ -2887,6 +3118,7 @@ export class BridgeManager {
         platform,
         agent,
         index: this._readBridgeIndex(entryAgentId, agent),
+        ...(entry.workstationId ? { configuredOwner: entry.owner || null, workstationId: entry.workstationId } : {}),
       });
       const ownerId = ownerTarget?.userId;
       if (!ownerId) continue;
@@ -2911,7 +3143,11 @@ export class BridgeManager {
         await entry.adapter.sendReply(chatId, cleaned);
         debugLog()?.log("bridge", `→ ${platform} proactive to owner (${cleaned.length} chars)`);
 
-        const sessionKey = ownerTarget.sessionKey || spec?.ownerSessionKey?.(ownerId, entryAgentId) || `${platform}_dm_${ownerId}@${entryAgentId}`;
+        const rawSessionKey = ownerTarget.sessionKey || spec?.ownerSessionKey?.(ownerId, entryAgentId) || `${platform}_dm_${ownerId}@${entryAgentId}`;
+        const sessionKey = scopeSessionKeyToWorkstation(
+          rawSessionKey,
+          explicitTarget?.workstationId || entry.workstationId || null,
+        );
         const sender = agent?.agentName || this.engine.agentName;
         let recorded = false;
         if (contextPolicy === "record_when_delivered") {
@@ -3078,11 +3314,12 @@ export class BridgeManager {
     );
   }
 
-  /** Extract agentId from sessionKey "@suffix" (e.g., "tg_dm_123@agent-1" → "agent-1") */
+  /** Extract agentId from sessionKey "@suffix" (e.g., "tg_dm_123@agent-1" or "qq_dm_123@agent-1#ws_1" → "agent-1") */
   _extractAgentIdFromSessionKey(sessionKey) {
     if (!sessionKey) return null;
-    const atIdx = sessionKey.lastIndexOf('@');
-    return atIdx !== -1 ? sessionKey.slice(atIdx + 1) : null;
+    const withoutWs = String(sessionKey).split('#')[0] || '';
+    const atIdx = withoutWs.lastIndexOf('@');
+    return atIdx !== -1 ? withoutWs.slice(atIdx + 1) : null;
   }
 
   /** 获取最近消息日志（供 REST API 使用，支持 per-agent 过滤） */

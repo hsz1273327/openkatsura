@@ -88,11 +88,7 @@ export function AgentCardStack({
 }) {
   const cardsRef = useRef<HTMLDivElement>(null);
   const [pointerInside, setPointerInside] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
-  const expanded = pointerInside || focusWithin || dragActive;
-  const expandedRef = useRef(false);
-  const expandedScrollLeftRef = useRef(0);
+  const expanded = true;
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
 
@@ -104,39 +100,23 @@ export function AgentCardStack({
   const spreadStep = cardGeometry.spreadStep;
   const spreadWidth = cardGeometry.spreadWidth;
 
-  // Wheel 只在展开态归本组件所有；收起态交还页面滚动，避免旧 scrollLeft 影响弧形堆叠。
+  // 仅当鼠标悬停且卡片条横向溢出时捕获滚轮，否则交还页面垂直滚动。
   useEffect(() => {
     const el = cardsRef.current;
     if (!el) return;
     const handler = (e: WheelEvent) => {
-      if (!expanded) return;
+      if (!pointerInside) return;
       e.preventDefault();
       if (el.scrollWidth <= el.clientWidth) return;
       el.scrollLeft += e.deltaY;
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, [expanded]);
+  }, [pointerInside]);
 
   useLayoutEffect(() => {
     const el = cardsRef.current;
     if (!el) return;
-
-    if (!expanded) {
-      if (expandedRef.current) {
-        expandedScrollLeftRef.current = el.scrollLeft;
-      }
-      // Compact fan geometry is positioned relative to scroll origin. Keep
-      // the expanded viewport in a ref while the collapsed DOM sits at zero.
-      el.scrollLeft = 0;
-      expandedRef.current = false;
-      return;
-    }
-
-    if (!expandedRef.current) {
-      el.scrollLeft = expandedScrollLeftRef.current;
-    }
-    expandedRef.current = true;
     if (!selectedId) return;
     if (el.scrollWidth <= el.clientWidth) return;
     const card = el.querySelector(`[data-agent-id="${selectedId}"]`) as HTMLElement;
@@ -153,7 +133,7 @@ export function AgentCardStack({
       edgePadding: cardGeometry.edgeBleed,
       maxScrollLeft: el.scrollWidth - el.clientWidth,
     });
-  }, [expanded, selectedId, cardGeometry.edgeBleed]);
+  }, [selectedId, cardGeometry.edgeBleed]);
 
   // 拖拽排序（只对 agent 卡片，排除最后的 add 按钮）
   useEffect(() => {
@@ -170,7 +150,6 @@ export function AgentCardStack({
 
       const handler = (e: PointerEvent) => {
         if (e.button !== 0) return;
-        if (!container.matches(':hover')) return;
 
         e.preventDefault();
         card.setPointerCapture(e.pointerId);
@@ -192,7 +171,6 @@ export function AgentCardStack({
 
           if (!moved) {
             moved = true;
-            setDragActive(true);
             card.classList.add(styles['dragging']);
             card.dataset.wasDragged = '1';
             // Lock scroll during drag
@@ -235,7 +213,6 @@ export function AgentCardStack({
 
           allCards.forEach(c => { c.style.transform = ''; c.style.transition = ''; });
           container.classList.remove(styles['dragging-active']);
-          setDragActive(false);
           activeDragCleanups.delete(cancelActiveDrag);
 
           if (!commit || !moved) return;
@@ -302,12 +279,6 @@ export function AgentCardStack({
         ref={cardsRef}
         onPointerEnter={() => setPointerInside(true)}
         onPointerLeave={() => setPointerInside(false)}
-        onFocus={() => setFocusWithin(true)}
-        onBlur={(event) => {
-          const next = event.relatedTarget;
-          if (next instanceof Node && event.currentTarget.contains(next)) return;
-          setFocusWithin(false);
-        }}
       >
         {/* spacer: 撑出实际滚动宽度，绝对定位的卡片不贡献 scrollWidth */}
         <div data-spacer="1" style={{ width: spreadWidth, height: 1, pointerEvents: 'none', flexShrink: 0 }} />
@@ -364,6 +335,9 @@ export function AgentCardStack({
         {/* "+" 新建卡片 */}
         <div
           data-add-btn="1"
+          role="button"
+          tabIndex={0}
+          aria-label={t('settings.agent.addAgent')}
           className={styles['agent-card']}
           style={{
             '--rot-tight': `${agents.length * stepTight}deg`,
@@ -372,12 +346,19 @@ export function AgentCardStack({
             zIndex: 0,
           } as React.CSSProperties}
           onClick={onAdd}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onAdd();
+            }
+          }}
         >
           <div className={`${styles['agent-card-inner']} ${styles['agent-card-add']}`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           </div>
+          <span className={styles['agent-card-name']}>{t('settings.agent.addAgent')}</span>
         </div>
       </div>
 

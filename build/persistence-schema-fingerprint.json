@@ -657,7 +657,7 @@
     ],
     "version": 3
   },
-  "payloadFingerprint": "sha256:e3ce94fd8edccd61b784e4424466ad023343dc356c7ed2cdc86b05f1d55a9ba7",
+  "payloadFingerprint": "sha256:095a73c302e3a3f8e3c517c97e1f6f640ee7766ff2025019e044c88aaac09a3b",
   "registry": [
     {
       "affectedByEpochMigration": true,
@@ -3072,8 +3072,8 @@
   ],
   "review": {
     "classification": "compatible",
-    "compatibilityReason": "Allow optional meta passthrough in BridgeSessionManager.switchSessionForSessionKey when binding detached SessionCoordinator owner sessions",
-    "payloadFingerprint": "sha256:e3ce94fd8edccd61b784e4424466ad023343dc356c7ed2cdc86b05f1d55a9ba7"
+    "compatibilityReason": "Add optional bridge.workstations array in PreferencesManager for multi-instance Bridge workstations",
+    "payloadFingerprint": "sha256:095a73c302e3a3f8e3c517c97e1f6f640ee7766ff2025019e044c88aaac09a3b"
   },
   "schemas": [
     {
@@ -3641,7 +3641,7 @@
       "contract": "PreferencesManager defaults, coercion, and _dataVersion migration driver",
       "kind": "runtime-contract",
       "module": "core/preferences-manager.ts",
-      "sourceHash": "sha256:08db73ab9defe36e3c0f64e4a37298785293e89031f82379e13ba7b47be09def",
+      "sourceHash": "sha256:33c7815e99183a6b836f4a8d07cfa780f6485bed65d4a214c00e60be10c4b864",
       "storeId": "user-preferences"
     },
     {

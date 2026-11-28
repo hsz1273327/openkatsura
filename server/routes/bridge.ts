@@ -5,6 +5,7 @@
  * 本文件仅负责平台无关的配置托管、状态投影、连通性测试代理、动作代理与会话管理。
  */
 
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { Hono } from "hono";
@@ -118,6 +119,7 @@ export function buildBridgeStatus(engine: any, manager: any, agent: any) {
     return {
       ...extraFields,
       enabled,
+      allowGuests: cfg?.allowGuests === true,
       status: enabled && configError ? "error" : live[plat]?.status || "disconnected",
       error: enabled && configError ? configError : live[plat]?.error || configError,
       agentId: agent.id,
@@ -195,6 +197,233 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
     };
   }
 
+  const projectWorkstation = (ws: any, manager: any) => {
+    const provider = bridgeProviderRegistry.get(ws.platform);
+    const creds = ws.credentials && typeof ws.credentials === "object" ? ws.credentials : {};
+    const extraFields = provider
+      ? (typeof provider.extractStatusMeta === "function"
+        ? provider.extractStatusMeta(creds)
+        : buildDefaultPlatformStatusFields(provider, creds))
+      : { configured: false, configError: `platform plugin not installed: ${ws.platform}` };
+    const liveStatus = manager?.getWorkstationStatus?.(ws.id) || { status: "disconnected", error: null };
+    const enabled = !!ws.enabled;
+    const configError = extraFields?.configError || null;
+    const index = ws.agentId ? (engine.getBridgeIndex?.(ws.agentId) || {}) : {};
+    const knownUsers = collectKnownUsers(index)[ws.platform] || [];
+    return {
+      ...extraFields,
+      id: ws.id,
+      name: ws.name || `${provider?.displayName || ws.platform} · ${ws.agentId}`,
+      platform: ws.platform,
+      agentId: ws.agentId,
+      enabled,
+      allowGuests: ws.allowGuests === true,
+      owner: ws.owner || null,
+      status: enabled && configError ? "error" : liveStatus.status,
+      error: enabled && configError ? configError : liveStatus.error,
+      knownUsers,
+    };
+  };
+
+  /** 获取全局工位列表与平台驱动描述 */
+  route.get("/bridge/workstations", (c) => {
+    const manager = resolveBridgeManager();
+    const list = engine.getBridgeWorkstations?.() || [];
+    const readOnly = engine.getBridgeReadOnly?.() === true;
+    const permissionMode = engine.getBridgePermissionMode?.()
+      || normalizeBridgePermissionMode({ readOnly });
+    return c.json({
+      workstations: list.map((ws: any) => projectWorkstation(ws, manager)),
+      platforms: bridgeProviderRegistry.describeForClient(),
+      permissionMode,
+      readOnly,
+      receiptEnabled: engine.getBridgeReceiptEnabled?.() !== false,
+      richStreamingEnabled: engine.getBridgeRichStreamingEnabled?.() !== false,
+    });
+  });
+
+  /** 创建工位（绑定平台驱动与承接助手，创建后不可更改绑定关系） */
+  route.post("/bridge/workstations", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const body = await safeJson(c);
+    const platform = typeof body?.platform === "string" ? body.platform.trim() : "";
+    const agentId = typeof body?.agentId === "string" ? body.agentId.trim() : "";
+    const provider = platform ? bridgeProviderRegistry.get(platform) : null;
+    if (!provider) {
+      return c.json({ ok: false, error: "invalid or uninstalled platform plugin" }, 400);
+    }
+    const agent = agentId ? engine.getAgent?.(agentId) : null;
+    if (!agent) {
+      return c.json({ ok: false, error: "target agent not found" }, 404);
+    }
+    const rawName = typeof body?.name === "string" ? body.name.trim() : "";
+    const id = `ws_${platform}_${crypto.randomUUID().slice(0, 8)}`;
+    const created = {
+      id,
+      name: rawName || `${provider.displayName || platform} · ${agent.agentName || agent.id}`,
+      platform,
+      agentId: agent.id,
+      enabled: false,
+      allowGuests: false,
+      owner: null,
+      credentials: {},
+    };
+    const existing = engine.getBridgeWorkstations?.() || [];
+    engine.saveBridgeWorkstations([...existing, created]);
+    return c.json({ ok: true, workstation: projectWorkstation(created, resolveBridgeManager()) }, 201);
+  });
+
+  /** 更新工位配置（名称、凭据、启停、allowGuests、owner；禁止修改 platform/agentId） */
+  route.patch("/bridge/workstations/:id", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const id = c.req.param("id");
+    const existing = engine.getBridgeWorkstations?.() || [];
+    const targetIdx = existing.findIndex((item: any) => item?.id === id);
+    if (targetIdx < 0) {
+      return c.json({ ok: false, error: "workstation not found" }, 404);
+    }
+    const current = existing[targetIdx];
+    const body = await safeJson(c);
+    if (
+      (typeof body?.platform === "string" && body.platform.trim() !== current.platform)
+      || (typeof body?.agentId === "string" && body.agentId.trim() !== current.agentId)
+    ) {
+      return c.json({ ok: false, error: "workstation platform and agentId are immutable after creation" }, 400);
+    }
+    const provider = bridgeProviderRegistry.get(current.platform);
+    if (!provider) {
+      return c.json({ ok: false, error: "invalid or uninstalled platform plugin" }, 400);
+    }
+    const credentialsInput = body?.credentials && typeof body.credentials === "object" ? body.credentials : null;
+    const secretKeys = bridgeSecretKeys(current.platform);
+    const fallbackSecretKeys = secretKeys.length > 0
+      ? secretKeys
+      : ["token", "botToken", "appSecret", "clientSecret", "secret"];
+    const secretFields = credentialsInput
+      ? collectSecretPatchPaths({ credentials: credentialsInput }, fallbackSecretKeys)
+      : [];
+    const secretDenied = denySecretMutationWithoutScope(c, secretFields);
+    if (secretDenied) return secretDenied;
+
+    let nextCredentials = current.credentials && typeof current.credentials === "object" ? { ...current.credentials } : {};
+    if (credentialsInput) {
+      try {
+        nextCredentials = typeof provider.normalizeConfig === "function"
+          ? provider.normalizeConfig(credentialsInput, nextCredentials)
+          : { ...nextCredentials, ...resolveBridgeCredentials(current.platform, credentialsInput, nextCredentials) };
+      } catch (err: any) {
+        return c.json({ ok: false, error: err?.message || String(err) }, 400);
+      }
+    }
+    const updated = {
+      ...current,
+      name: typeof body?.name === "string" && body.name.trim() ? body.name.trim() : current.name,
+      enabled: typeof body?.enabled === "boolean" ? body.enabled : !!current.enabled,
+      allowGuests: typeof body?.allowGuests === "boolean" ? body.allowGuests : current.allowGuests === true,
+      owner: body?.owner !== undefined ? (body.owner || null) : (current.owner || null),
+      credentials: nextCredentials,
+    };
+    const nextList = [...existing];
+    nextList[targetIdx] = updated;
+    engine.saveBridgeWorkstations(nextList);
+
+    const shouldReconcileConnection = Boolean(credentialsInput) || typeof body?.enabled === "boolean";
+    if (shouldReconcileConnection) {
+      if (updated.enabled) {
+        const manager = await ensureBridgeManager();
+        if (!manager) return bridgeUnavailable(c, bridgeRef.getState?.() || {});
+        manager.startWorkstation(updated);
+      } else {
+        resolveBridgeManager()?.stopWorkstation?.(updated.id);
+      }
+    } else {
+      resolveBridgeManager()?.updateWorkstationRuntimePolicy?.(updated.id, {
+        owner: updated.owner,
+        allowGuests: updated.allowGuests,
+      });
+    }
+
+    recordSecurityAuditEvent(c, engine, {
+      action: "settings.bridge.workstation.update",
+      target: `bridge.workstation.${updated.id}`,
+      secretFields,
+      metadata: {
+        workstationId: updated.id,
+        agentId: updated.agentId,
+        platform: updated.platform,
+        enabled: typeof body?.enabled === "boolean" ? body.enabled : null,
+        allowGuests: typeof body?.allowGuests === "boolean" ? body.allowGuests : null,
+      },
+    } as any);
+    return c.json({ ok: true, workstation: projectWorkstation(updated, resolveBridgeManager()) });
+  });
+
+  /** 删除工位并停止其连接 */
+  route.delete("/bridge/workstations/:id", (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const id = c.req.param("id");
+    const existing = engine.getBridgeWorkstations?.() || [];
+    if (!existing.some((item: any) => item?.id === id)) {
+      return c.json({ ok: false, error: "workstation not found" }, 404);
+    }
+    resolveBridgeManager()?.stopWorkstation?.(id);
+    engine.saveBridgeWorkstations(existing.filter((item: any) => item?.id !== id));
+    return c.json({ ok: true });
+  });
+
+  /** 测试单个工位的连通性 */
+  route.post("/bridge/workstations/:id/test", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const id = c.req.param("id");
+    const existing = engine.getBridgeWorkstations?.() || [];
+    const ws = existing.find((item: any) => item?.id === id);
+    if (!ws) {
+      return c.json({ ok: false, error: "workstation not found" }, 404);
+    }
+    const provider = bridgeProviderRegistry.get(ws.platform);
+    if (!provider) {
+      return c.json({ ok: false, error: "unknown or uninstalled platform plugin" }, 400);
+    }
+    const body = await safeJson(c);
+    const useSavedCredentials = body?.useSavedCredentials;
+    if (useSavedCredentials !== undefined && typeof useSavedCredentials !== "boolean") {
+      return c.json({ error: "useSavedCredentials must be a boolean" }, 400);
+    }
+    const credentials = body?.credentials && typeof body.credentials === "object" ? body.credentials : {};
+    const secretFields = collectSecretPatchPaths({ credentials }, bridgeSecretKeys(ws.platform));
+    const secretDenied = denySecretMutationWithoutScope(c, secretFields);
+    if (secretDenied) return secretDenied;
+
+    try {
+      if (useSavedCredentials !== true && hasMaskedBridgeCredentials(ws.platform, credentials)) {
+        return c.json({ error: "masked credentials require useSavedCredentials=true" }, 400);
+      }
+      const saved = useSavedCredentials === true ? (ws.credentials || {}) : {};
+      const effectiveCredentials = typeof provider.normalizeConfig === "function"
+        ? provider.normalizeConfig(credentials, saved)
+        : { ...saved, ...resolveBridgeCredentials(ws.platform, credentials, saved) };
+      if (typeof provider.testConnection !== "function") {
+        return c.json({ ok: false, error: t("error.platformTestUnsupported") });
+      }
+      const result = await provider.testConnection(effectiveCredentials, createRouteHostServices(engine, ws.platform));
+      return c.json({
+        ok: Boolean(result?.ok),
+        ...(result?.error ? { error: result.error } : {}),
+        info: {
+          ...(result?.message ? { msg: result.message } : {}),
+          ...(result?.botName ? { name: result.botName } : {}),
+          ...(result?.details || {}),
+        },
+      });
+    } catch (err: any) {
+      return c.json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   /** 获取所有平台连接状态（从 agent.config.bridge 读取） */
   route.get("/bridge/status", withReadAgent(async (c, agent) => {
     const manager = resolveBridgeManager();
@@ -230,7 +459,7 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
   /** 保存凭证 + 启停平台（写入 agent.config.bridge） */
   route.post("/bridge/config", async (c) => {
     const body = await safeJson(c);
-    const { platform, credentials, enabled } = body;
+    const { platform, credentials, enabled, allowGuests } = body;
     const scopeDenied = denyWithoutScope(c, "bridge.manage");
     if (scopeDenied) return scopeDenied;
     const secretKeys = bridgeSecretKeys(platform);
@@ -265,6 +494,7 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
       }
     }
     if (typeof enabled === "boolean") patch.enabled = enabled;
+    if (typeof allowGuests === "boolean") patch.allowGuests = allowGuests;
     if (typeof provider.normalizeConfig === "function") {
       try {
         patch = provider.normalizeConfig(patch, bridgeCfg);
@@ -277,21 +507,29 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
 
     const persistedPatch = agent.config?.bridge?.[platform] || patch;
 
-    // Start/stop
-    if (persistedPatch.enabled) {
-      const manager = await ensureBridgeManager();
-      if (!manager) return bridgeUnavailable(c, bridgeRef.getState?.() || {});
-      manager.startPlatformFromConfig(platform, persistedPatch, agentId);
-    } else {
-      resolveBridgeManager()?.stopPlatform(platform, agentId);
+    // Start/stop only when credentials or enabled state changed (toggling allowGuests does not need a reconnect)
+    const shouldReconcileConnection = Boolean(credentials) || typeof enabled === "boolean";
+    if (shouldReconcileConnection) {
+      if (persistedPatch.enabled) {
+        const manager = await ensureBridgeManager();
+        if (!manager) return bridgeUnavailable(c, bridgeRef.getState?.() || {});
+        manager.startPlatformFromConfig(platform, persistedPatch, agentId);
+      } else {
+        resolveBridgeManager()?.stopPlatform(platform, agentId);
+      }
     }
 
-    debugLog()?.log("api", `POST /api/bridge/config agent=${agentId} platform=${platform} enabled=${!!patch.enabled}`);
+    debugLog()?.log("api", `POST /api/bridge/config agent=${agentId} platform=${platform} enabled=${!!patch.enabled} allowGuests=${patch.allowGuests === true}`);
     recordSecurityAuditEvent(c, engine, {
       action: "settings.bridge.config.update",
       target: `bridge.${platform}`,
       secretFields,
-      metadata: { agentId, platform, enabled: typeof enabled === "boolean" ? enabled : null },
+      metadata: {
+        agentId,
+        platform,
+        enabled: typeof enabled === "boolean" ? enabled : null,
+        allowGuests: typeof allowGuests === "boolean" ? allowGuests : null,
+      },
     } as any);
     return c.json({ ok: true });
   });

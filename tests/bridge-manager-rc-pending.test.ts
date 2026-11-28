@@ -29,7 +29,7 @@ function createMocks() {
   };
   const engine = {
     getAgent: vi.fn((id) => id === "hana"
-      ? { id: "hana", agentName: "T", config: { bridge: { telegram: { owner: "owner123" } }, models: { chat: { id: "gpt-5", provider: "openai" } } }, sessionDir: os.tmpdir() }
+      ? { id: "hana", agentName: "T", config: { bridge: { telegram: { owner: "owner123", allowGuests: true } }, models: { chat: { id: "gpt-5", provider: "openai" } } }, sessionDir: os.tmpdir() }
       : null),
     isBridgeSessionStreaming: vi.fn(() => false),
     isSessionStreaming: vi.fn(() => false),

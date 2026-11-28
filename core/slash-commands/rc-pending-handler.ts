@@ -30,7 +30,7 @@ const STREAM_POLL_INTERVAL_MS = 200;
  * @returns {Promise<{handled: boolean}>}
  */
 export async function handleRcPendingInput(ctx) {
-  const { engine, agentId, sessionKey, text, reply, isGroup = false, chatId = null, messageThreadId = null } = ctx;
+  const { engine, agentId, sessionKey, text, reply, isGroup = false, chatId = null, workstationId = null, messageThreadId = null } = ctx;
   const rcState = engine.rcState;
   if (!rcState) return { handled: false };
 
@@ -110,6 +110,7 @@ export async function handleRcPendingInput(ctx) {
       engine.switchBridgeSession(sessionKey, sessionPath, agentId, {
         platform,
         chatId,
+        workstationId,
         messageThreadId,
         title,
       });
@@ -138,6 +139,7 @@ export async function handleRcPendingInput(ctx) {
         platform,
         chatId,
         agentId,
+        workstationId,
         messageThreadId,
       });
     } catch (err) {

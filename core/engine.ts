@@ -45,6 +45,7 @@ import { PluginDevService } from "./plugin-dev-service.ts";
 import { createPluginDevTools } from "./plugin-dev-tools.ts";
 import { DefaultResourceLoader, SessionManager, SettingsManager } from "../lib/pi-sdk/index.ts";
 import { registerBridgeBusHandlers } from "../lib/bridge/bridge-bus-handlers.ts";
+import { parseSessionKey } from "../lib/bridge/session-key.ts";
 import { JudgeClient } from "./judge-client.ts";
 import { registerJudgeBusHandlers } from "../lib/judge/judge-bus-handlers.ts";
 import { IncrementalCompactionLogStore } from "./incremental-compaction.ts";
@@ -1838,6 +1839,8 @@ export class HanaEngine {
   setBridgeReceiptEnabled(v) { this._prefs.setBridgeReceiptEnabled(v); }
   getBridgeRichStreamingEnabled() { return this._prefs.getBridgeRichStreamingEnabled(); }
   setBridgeRichStreamingEnabled(v) { this._prefs.setBridgeRichStreamingEnabled(v); }
+  getBridgeWorkstations() { return this._prefs.getBridgeWorkstations(); }
+  saveBridgeWorkstations(list) { return this._prefs.saveBridgeWorkstations(list); }
   setOutboundProxyRuntime(runtime) { this._outboundProxyRuntime = runtime || null; }
   getNetworkProxy() { return this._prefs.getNetworkProxy(); }
   setNetworkProxy(v) {
@@ -2188,16 +2191,19 @@ export class HanaEngine {
     if (!created?.sessionPath) return null;
     const platformMatch = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
     const platform = opts.platform || (platformMatch ? platformMatch[1] : "bridge");
+    const workstationId = opts.workstationId || parseSessionKey(sessionKey).workstationId || null;
     const indexMeta = {
       ...(opts.meta || {}),
       platform,
       chatType: "dm",
       role: "owner",
       ...(opts.chatId ? { chatId: opts.chatId } : {}),
+      ...(workstationId ? { workstationId } : {}),
     };
     this.switchBridgeSession(sessionKey, created.sessionPath, agentId, {
       platform,
       chatId: opts.chatId || null,
+      workstationId,
       messageThreadId: opts.messageThreadId || null,
       indexMeta,
     });
@@ -2227,10 +2233,12 @@ export class HanaEngine {
         }
         const platformMatch = /^([a-z0-9-]+)_/i.exec(sessionKey || "");
         const platform = meta.platform || (platformMatch ? platformMatch[1] : "bridge");
+        const workstationId = meta.workstationId || parseSessionKey(sessionKey).workstationId || null;
         rcState.attach(sessionKey, result.sessionPath, {
           platform,
           chatId: meta.chatId || null,
           agentId,
+          workstationId,
           messageThreadId: meta.messageThreadId || null,
         });
         try {

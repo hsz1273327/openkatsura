@@ -18,17 +18,14 @@ vi.mock('../../settings/tabs/bridge/PlatformSection', () => ({
   PlatformSection: ({ platform }: { platform: string }) => <div data-testid={`platform-${platform}`} />,
 }));
 
-vi.mock('../../settings/tabs/bridge/BridgeAgentRow', () => ({
-  BridgeAgentRow: () => <div data-testid="bridge-agent-row" />,
-}));
-
 function bridgeState(overrides: Record<string, unknown> = {}) {
+  const platforms = [
+    { id: 'qq', displayName: 'QQ', configSchema: [] },
+    { id: 'synology-chat', displayName: 'Synology Chat', configSchema: [] },
+  ];
   return {
     status: {
-      platforms: [
-        { id: 'qq', displayName: 'QQ', configSchema: [] },
-        { id: 'synology-chat', displayName: 'Synology Chat', configSchema: [] },
-      ],
+      platforms,
       permissionMode: 'auto',
       readOnly: false,
       receiptEnabled: true,
@@ -36,6 +33,34 @@ function bridgeState(overrides: Record<string, unknown> = {}) {
       knownUsers: {},
       owner: {},
     },
+    workstationPlatforms: platforms,
+    workstations: [
+      {
+        id: 'ws_synology_1',
+        name: 'Synology Station',
+        platform: 'synology-chat',
+        agentId: 'hana',
+        enabled: false,
+        allowGuests: false,
+        owner: null,
+        status: 'disconnected',
+      },
+      {
+        id: 'ws_qq_1',
+        name: 'QQ Station',
+        platform: 'qq',
+        agentId: 'hana',
+        enabled: false,
+        allowGuests: false,
+        owner: null,
+        status: 'disconnected',
+      },
+    ],
+    testingWorkstationId: null,
+    createWorkstation: vi.fn(),
+    updateWorkstation: vi.fn(),
+    deleteWorkstation: vi.fn(),
+    testWorkstation: vi.fn(),
     globalSettingsSaving: false,
     selectedAgentId: 'hana',
     setSelectedAgentId: vi.fn(),
@@ -117,29 +142,25 @@ describe('BridgeTab permission mode and dynamic plugin rendering', () => {
   });
 
   it('renders empty-state guidance when no bridge plugins are registered', () => {
-    const state = bridgeState();
+    const state = bridgeState({ workstationPlatforms: [] });
     (state.status as { platforms: unknown[] }).platforms = [];
     vi.mocked(useBridgeState).mockReturnValue(state as never);
 
     render(<BridgeTab />);
 
     expect(document.body.querySelectorAll('[data-testid^="platform-"]').length).toBe(0);
-    expect(document.body.textContent).toContain('当前未启用任何社交平台插件');
+    expect(document.body.textContent).toContain('settings.bridge.noPluginsHint');
   });
 
-  it('renders arbitrary registered plugins strictly in registration order without hardcoded platforms', () => {
+  it('renders workstations as tabs in order without hardcoded platforms', () => {
     const state = bridgeState();
-    (state.status as { platforms: unknown[] }).platforms = [
-      { id: 'synology-chat', displayName: 'Synology Chat', configSchema: [] },
-      { id: 'qq', displayName: 'QQ', configSchema: [] },
-      { id: 'discord', displayName: 'Discord', configSchema: [] },
-    ];
     vi.mocked(useBridgeState).mockReturnValue(state as never);
 
     render(<BridgeTab />);
 
-    const rendered = Array.from(document.body.querySelectorAll('[data-testid^="platform-"]'))
-      .map((el) => el.getAttribute('data-testid'));
-    expect(rendered).toEqual(['platform-synology-chat', 'platform-qq', 'platform-discord']);
+    const tabs = Array.from(document.body.querySelectorAll('[role="tab"]'))
+      .map((el) => el.getAttribute('data-bridge-workstation-tab'));
+    expect(tabs).toEqual(['ws_synology_1', 'ws_qq_1']);
+    expect(document.body.querySelector('[data-testid="platform-synology-chat"]')).not.toBeNull();
   });
 });

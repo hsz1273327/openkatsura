@@ -230,7 +230,19 @@ export function AgentTab() {
   return (
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="agent">
       {/* Agent 卡片堆叠 */}
-      <SettingsSection title={t('settings.agent.title')} surface="plain">
+      <SettingsSection
+        title={t('settings.agent.title')}
+        surface="plain"
+        context={
+          <button
+            type="button"
+            className={styles['settings-btn-secondary']}
+            onClick={() => window.dispatchEvent(new Event('hana-show-agent-create'))}
+          >
+            + {t('settings.agent.addAgent')}
+          </button>
+        }
+      >
         <AgentCardStack
           agents={agents}
           selectedId={selectedSettingsAgentId}

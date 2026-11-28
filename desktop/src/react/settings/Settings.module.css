@@ -495,6 +495,41 @@
     text-align: center;
 }
 
+.bridge-plugin-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-8);
+    margin-bottom: var(--space-12);
+}
+
+.bridge-plugin-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-12);
+    border-radius: var(--radius-md, 8px);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-weight: 400;
+    font-size: var(--fs-body);
+    cursor: pointer;
+}
+
+.bridge-plugin-tab-active {
+    border-color: var(--accent, var(--border-strong, currentColor));
+    background: var(--bg-elevated, var(--bg-secondary));
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.bridge-workstation-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-16);
+}
+
 .shortcut-keycaps {
     display: inline-flex;
     align-items: center;

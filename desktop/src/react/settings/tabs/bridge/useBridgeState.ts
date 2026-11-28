@@ -19,6 +19,7 @@ interface PlatformStatusBase {
   status?: string;
   error?: string;
   enabled?: boolean;
+  allowGuests?: boolean;
   agentId?: string | null;
 }
 
@@ -60,6 +61,21 @@ export interface RegisteredBridgePlatform {
   actions?: string[];
 }
 
+export interface BridgeWorkstation {
+  id: string;
+  name: string;
+  platform: string;
+  agentId: string;
+  enabled: boolean;
+  allowGuests: boolean;
+  owner: string | null;
+  status?: string;
+  error?: string | null;
+  configured?: boolean;
+  knownUsers?: KnownUser[];
+  [key: string]: unknown;
+}
+
 export interface BridgeStatus {
   agentId?: string | null;
   platforms?: RegisteredBridgePlatform[];
@@ -79,39 +95,6 @@ export interface BridgeStatus {
 }
 
 export type BridgePlatform = string;
-
-// WeChat reports `connected` only after its first long-poll succeeds. QR
-// confirmation starts that handshake, so keep the settings view reconciled for
-// a bounded minute without creating a permanent polling loop.
-const WECHAT_STATUS_RECONCILE_INTERVAL_MS = 2_000;
-const WECHAT_STATUS_RECONCILE_MAX_ATTEMPTS = 31;
-
-function shouldReconcileWechatStatus(status: BridgeStatus | null) {
-  if (!status) return true;
-  const wechat = status.wechat;
-  return wechat?.enabled === true
-    && wechat.status !== 'connected'
-    && wechat.status !== 'error';
-}
-
-function waitForWechatStatusRetry(signal: AbortSignal) {
-  return new Promise<boolean>((resolve) => {
-    if (signal.aborted) {
-      resolve(false);
-      return;
-    }
-
-    const onAbort = () => {
-      window.clearTimeout(timer);
-      resolve(false);
-    };
-    const timer = window.setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve(true);
-    }, WECHAT_STATUS_RECONCILE_INTERVAL_MS);
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
 
 function normalizeFeishuRegion(value: unknown): FeishuRegion {
   return value === 'lark_global' ? 'lark_global' : 'feishu_cn';
@@ -164,7 +147,7 @@ function storedBridgeSecrets(status: BridgeStatus | null): StoredBridgeSecrets {
   };
 }
 
-export function useBridgeState() {
+export function useBridgeState({ includeWorkstations = false }: { includeWorkstations?: boolean } = {}) {
   // Atomic selectors: only re-render when these specific fields change
   const showToast = useSettingsStore(s => s.showToast);
   const currentAgentId = useSettingsStore(s => s.currentAgentId);
@@ -174,10 +157,13 @@ export function useBridgeState() {
     : null;
   const snapshotFields = bridgeEditableFields(snapshotBridgeStatus);
 
-  // Selected agent for bridge config (independent of Agent tab selection)
+  // Selected agent for bridge config / AGENTS.public.md
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
     currentAgentId
   );
+  const [workstations, setWorkstations] = useState<BridgeWorkstation[] | null>(null);
+  const [workstationPlatforms, setWorkstationPlatforms] = useState<RegisteredBridgePlatform[] | null>(null);
+  const [testingWorkstationId, setTestingWorkstationId] = useState<string | null>(null);
   const [statusState, setStatusState] = useState<{
     ownerId: string | null;
     value: BridgeStatus | null;
@@ -200,7 +186,6 @@ export function useBridgeState() {
   const statusRequestIdRef = useRef(0);
   const testRequestIdRef = useRef(0);
   const liveStatusOwnersRef = useRef(new Set<string>());
-  const wechatStatusReconcileAbortRef = useRef<AbortController | null>(null);
 
   // Sync initial value when store becomes ready (only if null)
   useEffect(() => {
@@ -329,22 +314,20 @@ export function useBridgeState() {
     await fetchStatusForAgent(selectedAgentIdRef.current, signal);
   }, [fetchStatusForAgent]);
 
-  const reconcileWechatStatus = useCallback(async (
-    agentId: string,
-    signal: AbortSignal,
-  ) => {
-    for (let attempt = 0; attempt < WECHAT_STATUS_RECONCILE_MAX_ATTEMPTS; attempt += 1) {
-      if (signal.aborted || selectedAgentIdRef.current !== agentId) return;
-      const nextStatus = await fetchStatusForAgent(agentId, signal);
-      if (
-        signal.aborted
-        || selectedAgentIdRef.current !== agentId
-        || !shouldReconcileWechatStatus(nextStatus)
-        || attempt === WECHAT_STATUS_RECONCILE_MAX_ATTEMPTS - 1
-      ) return;
-      if (!await waitForWechatStatusRetry(signal)) return;
+  const loadWorkstations = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await hanaFetch('/api/bridge/workstations', signal ? { signal } : undefined);
+      const data = await res.json();
+      if (signal?.aborted) return;
+      setWorkstations(Array.isArray(data?.workstations) ? data.workstations : []);
+      if (Array.isArray(data?.platforms)) {
+        setWorkstationPlatforms(data.platforms);
+      }
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return;
+      console.error('[bridge] load workstations failed:', err);
     }
-  }, [fetchStatusForAgent]);
+  }, []);
 
   // Auto-fetch when selectedAgentId changes (abort stale on switch)
   useEffect(() => {
@@ -357,32 +340,122 @@ export function useBridgeState() {
     return () => ac.abort();
   }, [applyStatus, selectedAgentId, loadStatus, settingsSnapshot?.agentId]);
 
-  // Reconciliation belongs to the selected Agent. Switching Agent or unmounting
-  // cancels both the wait timer and any in-flight request.
-  useEffect(() => () => {
-    wechatStatusReconcileAbortRef.current?.abort();
-    wechatStatusReconcileAbortRef.current = null;
-  }, [selectedAgentId]);
+  useEffect(() => {
+    if (!includeWorkstations) return;
+    const ac = new AbortController();
+    void loadWorkstations(ac.signal);
+    return () => ac.abort();
+  }, [includeWorkstations, loadWorkstations]);
 
   useEffect(() => {
     const handler = () => {
-      const agentId = selectedAgentIdRef.current;
-      if (!agentId) return;
-
-      wechatStatusReconcileAbortRef.current?.abort();
-      const ac = new AbortController();
-      wechatStatusReconcileAbortRef.current = ac;
-      void reconcileWechatStatus(agentId, ac.signal).finally(() => {
-        if (wechatStatusReconcileAbortRef.current === ac) {
-          wechatStatusReconcileAbortRef.current = null;
-        }
-      });
+      void loadStatus();
+      if (includeWorkstations) void loadWorkstations();
     };
     window.addEventListener('hana-bridge-reload', handler);
     return () => window.removeEventListener('hana-bridge-reload', handler);
-  }, [reconcileWechatStatus]);
+  }, [includeWorkstations, loadStatus, loadWorkstations]);
 
-  const saveBridgeConfig = async (plat: string, credentials: Record<string, string> | null, enabled?: boolean) => {
+  const createWorkstation = async (input: { platform: string; agentId: string; name?: string }) => {
+    try {
+      const res = await hanaFetch('/api/bridge/workstations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      const created = data.workstation as BridgeWorkstation;
+      setWorkstations((prev) => [...(prev || []), created]);
+      showToast(t('settings.saved'), 'success');
+      return created;
+    } catch (err: unknown) {
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      return null;
+    }
+  };
+
+  const updateWorkstation = async (
+    id: string,
+    patch: {
+      name?: string;
+      credentials?: Record<string, string>;
+      enabled?: boolean;
+      allowGuests?: boolean;
+      owner?: string | null;
+    },
+  ) => {
+    try {
+      const res = await hanaFetch(`/api/bridge/workstations/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      const updated = data.workstation as BridgeWorkstation;
+      setWorkstations((prev) => (prev || []).map((item) => (item.id === id ? updated : item)));
+      showToast(t('settings.saved'), 'success');
+      return updated;
+    } catch (err: unknown) {
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      return null;
+    }
+  };
+
+  const deleteWorkstation = async (id: string) => {
+    try {
+      const res = await hanaFetch(`/api/bridge/workstations/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      setWorkstations((prev) => (prev || []).filter((item) => item.id !== id));
+      showToast(t('settings.saved'), 'success');
+      return true;
+    } catch (err: unknown) {
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      return false;
+    }
+  };
+
+  const testWorkstation = async (
+    id: string,
+    credentials: Record<string, string>,
+    useSavedCredentials = false,
+  ) => {
+    setTestingWorkstationId(id);
+    try {
+      const res = await hanaFetch(`/api/bridge/workstations/${encodeURIComponent(id)}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials, useSavedCredentials }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(t('settings.bridge.testOk'), 'success');
+      } else {
+        showToast(t('settings.bridge.testFail') + ': ' + (data.error || ''), 'error');
+      }
+    } catch (err: unknown) {
+      showToast(t('settings.bridge.testFail') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+    } finally {
+      setTestingWorkstationId((prev) => (prev === id ? null : prev));
+    }
+  };
+
+  const saveBridgeConfig = async (
+    plat: string,
+    credentials: Record<string, string> | null,
+    enabled?: boolean,
+    extra?: { allowGuests?: boolean },
+  ) => {
     // Snapshot agentId at call time to avoid stale closure
     const agentId = selectedAgentId;
     const secretSubmission = captureSubmission(plat, credentials);
@@ -392,7 +465,12 @@ export function useBridgeState() {
       await hanaFetch(`/api/bridge/config${agentQuery}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform: plat, credentials, enabled }),
+        body: JSON.stringify({
+          platform: plat,
+          credentials,
+          enabled,
+          ...(typeof extra?.allowGuests === 'boolean' ? { allowGuests: extra.allowGuests } : {}),
+        }),
       });
       markSubmissionSaved(secretSubmission);
       markFieldSubmissionsSaved(fieldSubmissions);
@@ -528,5 +606,7 @@ export function useBridgeState() {
     qqAppSecretDraft: secretDrafts.qqAppSecret,
     setQqAppSecret,
     saveBridgeConfig, testPlatform, setOwner, saveGlobalSettings,
+    workstations, workstationPlatforms, testingWorkstationId,
+    loadWorkstations, createWorkstation, updateWorkstation, deleteWorkstation, testWorkstation,
   };
 }
